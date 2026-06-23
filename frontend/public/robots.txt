@@ -1,0 +1,10 @@
+# ServeNep - Robots.txt
+# https://servenep.com
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+
+# Sitemap
+Sitemap: https://servenep.com/sitemap.xml

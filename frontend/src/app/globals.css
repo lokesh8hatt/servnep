@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #F9FBFC;
+  --foreground: #1D2731;
+  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-heading: 'Plus Jakarta Sans', sans-serif;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  margin: 0;
+  padding: 0;
+}
+
+.gradient-hero {
+  background: linear-gradient(135deg, #0B3C5D 0%, #1D2731 100%);
+}
+
+.gradient-teal {
+  background: linear-gradient(135deg, #328CC1 0%, #0B3C5D 100%);
+}
+
+.btn-primary {
+  background-color: #0B3C5D;
+  color: white;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  transition: all 0.2s;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+.btn-primary:hover {
+  background-color: #082d47;
+}
+
+.btn-secondary {
+  background-color: #328CC1;
+  color: white;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+.btn-secondary:hover {
+  background-color: #2875a1;
+}
+
+.btn-accent {
+  background-color: #D9B310;
+  color: #1D2731;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+.btn-accent:hover {
+  background-color: #bca00e;
+}
+
+.btn-outline {
+  border: 1px solid #cbd5e1;
+  color: #1D2731;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  transition: all 0.2s;
+  background-color: transparent;
+}
+.btn-outline:hover {
+  background-color: #f8fafc;
+}
