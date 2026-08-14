@@ -1,4 +1,4 @@
-import { Controller, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
 import { PaymentsService } from './payments.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -13,6 +13,18 @@ class InitiatePaymentDto {
   @IsNotEmpty()
   @IsString()
   bookingId: string;
+}
+
+class ClaimManualPaymentDto {
+  @ApiProperty({ example: 'b-1' })
+  @IsNotEmpty()
+  @IsString()
+  bookingId: string;
+
+  @ApiProperty({ example: '000AB12CD3', description: 'The eSewa/Khalti transaction ID from the sent payment' })
+  @IsNotEmpty()
+  @IsString()
+  reference: string;
 }
 
 class KhaltiVerifyDto {
@@ -34,12 +46,28 @@ export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   // ─── Manual pay-to-number flow (real money) ──────────────────────────
+  @Public()
+  @Get('config')
+  @ApiOperation({ summary: 'Which payment gateways are actually configured' })
+  getConfig() {
+    return this.paymentsService.getGatewayAvailability();
+  }
+
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post('manual/claim')
-  @ApiOperation({ summary: 'Customer confirms they sent a manual eSewa/Khalti transfer' })
-  claimManualPayment(@CurrentUser() user: UserPayload, @Body() dto: InitiatePaymentDto) {
-    return this.paymentsService.claimManualPayment(dto.bookingId, user.sub);
+  @ApiOperation({ summary: 'Customer confirms they sent a manual eSewa/Khalti transfer, with proof' })
+  claimManualPayment(@CurrentUser() user: UserPayload, @Body() dto: ClaimManualPaymentDto) {
+    return this.paymentsService.claimManualPayment(dto.bookingId, user.sub, dto.reference);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'DISPATCHER')
+  @Get('manual/:bookingId')
+  @ApiOperation({ summary: 'Get the payment claim (with customer-supplied reference) for a booking' })
+  getPaymentClaim(@Param('bookingId') bookingId: string) {
+    return this.paymentsService.getPaymentByBooking(bookingId);
   }
 
   @ApiBearerAuth()

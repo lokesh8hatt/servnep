@@ -2,8 +2,61 @@ import { Controller, Post, Body, Headers, HttpCode } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { ApiTags, ApiOperation, ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsIn, Length } from 'class-validator';
+import { IsNotEmpty, IsString, IsIn, IsEmail, Length, MinLength } from 'class-validator';
 import { UserRole } from '../users/entities/user.entity';
+
+class RegisterDto {
+  @ApiProperty({ example: 'sabin@gmail.com' })
+  @IsNotEmpty()
+  @IsEmail()
+  email: string;
+
+  @ApiProperty({ example: 'a-strong-password' })
+  @IsNotEmpty()
+  @MinLength(8)
+  password: string;
+
+  @ApiProperty({ example: 'Sabin Shrestha' })
+  @IsNotEmpty()
+  @IsString()
+  fullName: string;
+}
+
+class LoginEmailDto {
+  @ApiProperty({ example: 'sabin@gmail.com' })
+  @IsNotEmpty()
+  @IsEmail()
+  email: string;
+
+  @ApiProperty({ example: 'a-strong-password' })
+  @IsNotEmpty()
+  @IsString()
+  password: string;
+}
+
+class ForgotPasswordDto {
+  @ApiProperty({ example: 'sabin@gmail.com' })
+  @IsNotEmpty()
+  @IsEmail()
+  email: string;
+}
+
+class ResetPasswordDto {
+  @ApiProperty({ example: 'sabin@gmail.com' })
+  @IsNotEmpty()
+  @IsEmail()
+  email: string;
+
+  @ApiProperty({ example: '123456' })
+  @IsNotEmpty()
+  @Length(6, 6)
+  otpCode: string;
+
+  @ApiProperty({ example: 'a-new-strong-password' })
+  @IsNotEmpty()
+  @MinLength(8)
+  newPassword: string;
+}
 
 class RequestOtpDto {
   @ApiProperty({ example: '9841234567', description: 'Nepalese phone number' })
@@ -38,6 +91,34 @@ class DevLoginDto {
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  @Public()
+  @Post('register')
+  @ApiOperation({ summary: 'Create an account with email + password' })
+  register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto.email, dto.password, dto.fullName);
+  }
+
+  @Public()
+  @Post('login')
+  @ApiOperation({ summary: 'Log in with email + password' })
+  loginEmail(@Body() dto: LoginEmailDto) {
+    return this.authService.loginWithEmail(dto.email, dto.password);
+  }
+
+  @Public()
+  @Post('forgot-password')
+  @ApiOperation({ summary: 'Request a password reset code via email' })
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto.email);
+  }
+
+  @Public()
+  @Post('reset-password')
+  @ApiOperation({ summary: 'Reset password using the emailed code' })
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto.email, dto.otpCode, dto.newPassword);
+  }
 
   @Public()
   @Post('request-otp')

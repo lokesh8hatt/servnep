@@ -55,6 +55,14 @@ export default () => {
     },
     sms: {
       aakashToken: process.env.AAKASH_SMS_TOKEN || 'aakash-test-token',
-    }
+    },
+    email: {
+      // Real Gmail SMTP delivery for password-reset OTPs — requires a Gmail
+      // account with 2FA enabled and an App Password (Google Account >
+      // Security > 2-Step Verification > App passwords). A normal Gmail
+      // password will NOT work here; Google blocks plain-password SMTP.
+      gmailUser: process.env.GMAIL_USER || '',
+      gmailAppPassword: process.env.GMAIL_APP_PASSWORD || '',
+    },
   };
 };

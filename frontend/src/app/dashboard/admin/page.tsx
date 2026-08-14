@@ -15,11 +15,22 @@ export default function AdminDashboard() {
   const { showToast } = useToast();
   const [bookings, setBookings] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState('ALL');
+  const [paymentClaims, setPaymentClaims] = useState<Record<string, string>>({});
 
   const loadData = async () => {
     try {
       const data = await fetchApi('/bookings');
       setBookings(data);
+
+      const pending = data.filter((b: any) => b.paymentStatus === 'PENDING_VERIFICATION');
+      const claims = await Promise.all(
+        pending.map((b: any) => fetchApi(`/payments/manual/${b.id}`).catch(() => null)),
+      );
+      const claimMap: Record<string, string> = {};
+      pending.forEach((b: any, i: number) => {
+        if (claims[i]?.customerReference) claimMap[b.id] = claims[i].customerReference;
+      });
+      setPaymentClaims(claimMap);
     } catch {
       showToast('Please log in to continue.', 'error');
       logout();
@@ -223,23 +234,30 @@ export default function AdminDashboard() {
                             <span className="text-slate-400 dark:text-slate-500"> ({b.paymentMethod})</span>
                           </div>
                           {b.paymentStatus === 'PENDING_VERIFICATION' && (
-                            <div className="flex gap-1.5 mt-1.5">
-                              <button
-                                onClick={() => handleVerifyPayment(b.id, true)}
-                                title="Confirm payment received"
-                                aria-label="Confirm payment received"
-                                className="p-1 rounded-md bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
-                              >
-                                <Check size={12} />
-                              </button>
-                              <button
-                                onClick={() => handleVerifyPayment(b.id, false)}
-                                title="Reject payment claim"
-                                aria-label="Reject payment claim"
-                                className="p-1 rounded-md bg-red-500/10 text-red-600 hover:bg-red-500/20"
-                              >
-                                <X size={12} />
-                              </button>
+                            <div className="mt-1.5 space-y-1">
+                              {paymentClaims[b.id] && (
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                  Ref: <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{paymentClaims[b.id]}</span>
+                                </p>
+                              )}
+                              <div className="flex gap-1.5">
+                                <button
+                                  onClick={() => handleVerifyPayment(b.id, true)}
+                                  title="Confirm payment received"
+                                  aria-label="Confirm payment received"
+                                  className="p-1 rounded-md bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
+                                >
+                                  <Check size={12} />
+                                </button>
+                                <button
+                                  onClick={() => handleVerifyPayment(b.id, false)}
+                                  title="Reject payment claim"
+                                  aria-label="Reject payment claim"
+                                  className="p-1 rounded-md bg-red-500/10 text-red-600 hover:bg-red-500/20"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
                             </div>
                           )}
                         </td>

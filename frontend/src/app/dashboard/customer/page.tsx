@@ -38,6 +38,7 @@ export default function CustomerDashboard() {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
   const [claimingBookingId, setClaimingBookingId] = useState('');
+  const [paymentReferences, setPaymentReferences] = useState<Record<string, string>>({});
 
   const loadData = async () => {
     try {
@@ -94,11 +95,16 @@ export default function CustomerDashboard() {
   };
 
   const handleClaimPayment = async (bookingId: string) => {
+    const reference = (paymentReferences[bookingId] || '').trim();
+    if (reference.length < 4) {
+      showToast('Enter the transaction ID from your eSewa/Khalti payment (at least 4 characters).', 'error');
+      return;
+    }
     setClaimingBookingId(bookingId);
     try {
       await fetchApi('/payments/manual/claim', {
         method: 'POST',
-        body: JSON.stringify({ bookingId }),
+        body: JSON.stringify({ bookingId, reference }),
       });
       showToast('Thanks! We\'ll confirm your payment shortly.', 'success');
       loadData();
@@ -242,18 +248,27 @@ export default function CustomerDashboard() {
                     </div>
 
                     {booking.paymentMethod !== 'CASH' && booking.paymentStatus === 'PENDING' && (
-                      <div className="bg-sky-50 dark:bg-slate-950 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                        <span className="text-slate-600 dark:text-slate-300 font-semibold">
+                      <div className="bg-sky-50 dark:bg-slate-950 rounded-xl p-3 space-y-2 text-xs">
+                        <span className="text-slate-600 dark:text-slate-300 font-semibold block">
                           Send Rs. {booking.totalAmount} to <span className="font-mono font-bold text-slate-800 dark:text-slate-100">{MANUAL_PAYMENT_NUMBER}</span> via {booking.paymentMethod === 'KHALTI' ? 'Khalti' : 'eSewa'}
                         </span>
-                        <button
-                          onClick={() => handleClaimPayment(booking.id)}
-                          disabled={claimingBookingId === booking.id}
-                          className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1 justify-center disabled:opacity-50"
-                        >
-                          <Send size={11} />
-                          {claimingBookingId === booking.id ? 'Submitting…' : "I've Sent It"}
-                        </button>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <input
+                            type="text"
+                            value={paymentReferences[booking.id] || ''}
+                            onChange={(e) => setPaymentReferences((prev) => ({ ...prev, [booking.id]: e.target.value }))}
+                            placeholder="Transaction ID from your payment"
+                            className="flex-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs focus:outline-[#328CC1]"
+                          />
+                          <button
+                            onClick={() => handleClaimPayment(booking.id)}
+                            disabled={claimingBookingId === booking.id}
+                            className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1 justify-center disabled:opacity-50 shrink-0"
+                          >
+                            <Send size={11} />
+                            {claimingBookingId === booking.id ? 'Submitting…' : "I've Sent It"}
+                          </button>
+                        </div>
                       </div>
                     )}
 

@@ -1,21 +1,25 @@
-import { Injectable, UnauthorizedException, BadRequestException, ForbiddenException, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ForbiddenException, ConflictException, HttpException, HttpStatus } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
+import * as bcrypt from 'bcrypt';
 import { User, UserRole } from '../users/entities/user.entity';
+import { EmailService } from './email.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly emailService: EmailService,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
   ) {}
 
   private otpStorage = new Map<string, { code: string; expiresAt: Date }>();
+  private passwordResetOtpStorage = new Map<string, { code: string; expiresAt: Date }>();
 
   // Rate limiting: Track OTP requests per phone number
   private otpRateLimit = new Map<string, { count: number; windowStart: number }>();
@@ -72,7 +76,7 @@ export class AuthService {
   async verifyOtp(
     phoneNumber: string,
     otpCode: string,
-  ): Promise<{ accessToken: string; refreshToken: string; user: { id: string; phone: string; role: UserRole; fullName: string } }> {
+  ): Promise<ReturnType<AuthService['issueSession']>> {
     const record = this.otpStorage.get(phoneNumber);
     if (!record) {
       throw new UnauthorizedException('No OTP request found for this phone number. Please request a new OTP.');
@@ -103,6 +107,119 @@ export class AuthService {
     return this.issueSession(user);
   }
 
+  async register(email: string, password: string, fullName: string): Promise<ReturnType<AuthService['issueSession']>> {
+    const existing = await this.userRepository.findOne({ where: { email } });
+    if (existing) {
+      throw new ConflictException('An account with this email already exists');
+    }
+    if (password.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = await this.userRepository.save(
+      this.userRepository.create({
+        email,
+        passwordHash,
+        fullName,
+        role: UserRole.CUSTOMER,
+      }),
+    );
+
+    return this.issueSession(user);
+  }
+
+  async loginWithEmail(email: string, password: string): Promise<ReturnType<AuthService['issueSession']>> {
+    // passwordHash has select:false on the entity, so it must be explicitly
+    // requested — otherwise it's silently excluded from the query result.
+    const user = await this.userRepository
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.email = :email', { email })
+      .getOne();
+
+    if (!user || !user.passwordHash) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+    const matches = await bcrypt.compare(password, user.passwordHash);
+    if (!matches) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    return this.issueSession(user);
+  }
+
+  async forgotPassword(email: string): Promise<{ message: string; devOtp?: string }> {
+    const user = await this.userRepository.findOne({ where: { email } });
+    const genericMessage = { message: 'If an account exists for that email, a verification code has been sent.' };
+
+    // Don't leak whether the email exists — always return the same message,
+    // but only actually send (and rate-limit) when there's a real account.
+    if (!user) return genericMessage;
+
+    this.checkRateLimit(`reset:${email}`);
+
+    const otpCode = crypto.randomInt(100000, 999999).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    this.passwordResetOtpStorage.set(email, { code: otpCode, expiresAt });
+
+    // Mirrors requestOtp's exact shape: isLiveProduction gates whether the
+    // code is ever exposed in the response, independent of whether Gmail
+    // happens to be configured — a real production deploy without Gmail set
+    // up is a no-op here, same as phone OTP is without a real SMS gateway.
+    const isLiveProduction = process.env.NODE_ENV === 'production' && process.env.DEMO_MODE !== 'true';
+
+    if (this.emailService.isConfigured()) {
+      try {
+        await this.emailService.sendOtpEmail(email, otpCode);
+      } catch (err: any) {
+        // A send failure (bad credentials, Gmail rejecting the request) must
+        // not change the response shape in production — otherwise it becomes
+        // a side channel for checking which emails have accounts. Surface it
+        // in dev only, where it's a real config bug worth seeing immediately.
+        if (isLiveProduction) {
+          console.error(`Password reset email failed for ${email}: ${err.message}`);
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    if (!isLiveProduction) {
+      console.log(`[DEV] Password reset OTP for ${email}: ${otpCode}`);
+    }
+
+    return { ...genericMessage, ...(isLiveProduction ? {} : { devOtp: otpCode }) };
+  }
+
+  async resetPassword(email: string, otpCode: string, newPassword: string): Promise<{ message: string }> {
+    const record = this.passwordResetOtpStorage.get(email);
+    if (!record) {
+      throw new UnauthorizedException('No password reset was requested for this email. Please request a new code.');
+    }
+    if (new Date() > record.expiresAt) {
+      this.passwordResetOtpStorage.delete(email);
+      throw new UnauthorizedException('This code has expired. Please request a new one.');
+    }
+    if (record.code !== otpCode) {
+      throw new UnauthorizedException('Invalid verification code');
+    }
+    if (newPassword.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+
+    const user = await this.userRepository.findOne({ where: { email } });
+    if (!user) {
+      throw new UnauthorizedException('Account no longer exists');
+    }
+
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    await this.userRepository.save(user);
+    this.passwordResetOtpStorage.delete(email);
+
+    return { message: 'Password updated. You can now log in with your new password.' };
+  }
+
   /**
    * One-click login with no phone number or OTP at all, for demo/testing.
    * Blocked in production unless DEMO_MODE=true is explicitly set — that
@@ -110,7 +227,7 @@ export class AuthService {
    * (no real user data, no real SMS gateway to bypass); a real production
    * deployment should never set it.
    */
-  async devLogin(role: UserRole): Promise<{ accessToken: string; refreshToken: string; user: { id: string; phone: string; role: UserRole; fullName: string } }> {
+  async devLogin(role: UserRole): Promise<ReturnType<AuthService['issueSession']>> {
     if (process.env.NODE_ENV === 'production' && process.env.DEMO_MODE !== 'true') {
       throw new ForbiddenException('Instant demo login is not available in production');
     }
@@ -143,7 +260,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      user: { id: user.id, phone: user.phoneNumber, role: user.role, fullName: user.fullName },
+      user: { id: user.id, phone: user.phoneNumber, email: user.email, role: user.role, fullName: user.fullName },
     };
   }
 

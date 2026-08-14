@@ -20,13 +20,18 @@ export class UsersService {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User profile not found');
 
+    // Email-only accounts have no phone number — fall back to the user ID
+    // for a stable referral code suffix instead of crashing on null.
+    const referralSuffix = (user.phoneNumber || user.id.replace(/-/g, '')).slice(-4);
+
     return {
       id: user.id,
       phone: user.phoneNumber,
+      email: user.email,
       role: user.role,
       fullName: user.fullName,
       avatarUrl: user.avatarUrl || DEFAULT_AVATAR_URL,
-      referralCode: `NEP-${user.phoneNumber.slice(-4)}`,
+      referralCode: `NEP-${referralSuffix}`,
       addresses: await this.getAddresses(userId),
     };
   }

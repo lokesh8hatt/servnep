@@ -23,13 +23,16 @@ export class PaymentsService {
 
   // ─── Manual pay-to-number flow (the real, working default) ──────────────
 
-  async claimManualPayment(bookingId: string, customerId: string): Promise<{ status: PaymentStatus }> {
+  async claimManualPayment(bookingId: string, customerId: string, reference: string): Promise<{ status: PaymentStatus }> {
     const booking = await this.bookingsService.findById(bookingId);
     if (booking.customerId !== customerId) {
       throw new ForbiddenException('You can only submit payment for your own booking');
     }
     if (booking.paymentStatus === PaymentStatus.PAID) {
       throw new BadRequestException('This booking is already paid');
+    }
+    if (!reference || reference.trim().length < 4) {
+      throw new BadRequestException('Enter the eSewa/Khalti transaction ID from your payment so it can be verified');
     }
 
     let payment = await this.paymentRepository.findOne({ where: { bookingId } });
@@ -42,10 +45,22 @@ export class PaymentsService {
         amount: booking.totalAmount,
       });
     }
+    payment.customerReference = reference.trim();
     await this.paymentRepository.save(payment);
 
     await this.bookingsService.updatePaymentStatus(bookingId, PaymentStatus.PENDING_VERIFICATION);
     return { status: PaymentStatus.PENDING_VERIFICATION };
+  }
+
+  async getPaymentByBooking(bookingId: string): Promise<Payment | null> {
+    return this.paymentRepository.findOne({ where: { bookingId } });
+  }
+
+  getGatewayAvailability(): { esewaConfigured: boolean; khaltiConfigured: boolean } {
+    return {
+      esewaConfigured: true, // eSewa's shared UAT test credentials always work
+      khaltiConfigured: !!this.configService.get<string>('khalti.secretKey'),
+    };
   }
 
   async verifyManualPayment(bookingId: string, approved: boolean): Promise<{ status: PaymentStatus }> {

@@ -19,8 +19,15 @@ export default function BookingPage() {
   const { showToast } = useToast();
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-  const [useSandboxDemo, setUseSandboxDemo] = useState(false);
+  // 'checkout' = real eSewa/Khalti hosted payment page opens, like a normal
+  // online purchase (test environment — no merchant account exists, but the
+  // actual gateway UI and signature verification are real, not simulated).
+  // 'manual' = send the transfer directly to MANUAL_PAYMENT_NUMBER and claim
+  // it with a transaction reference for the admin to verify — real money.
+  const [payFlow, setPayFlow] = useState<'checkout' | 'manual'>('checkout');
+  const [khaltiConfigured, setKhaltiConfigured] = useState(true);
   const [manualPaymentBooking, setManualPaymentBooking] = useState<{ id: string; amount: number } | null>(null);
+  const [paymentReference, setPaymentReference] = useState('');
   const [claimingPayment, setClaimingPayment] = useState(false);
   const [services, setServices] = useState<any[]>([]);
   const [selectedService, setSelectedService] = useState<any>(null);
@@ -33,6 +40,12 @@ export default function BookingPage() {
   const [scheduledSlot, setScheduledSlot] = useState('11:00 AM - 01:00 PM');
   const [isEmergency, setIsEmergency] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'ESEWA' | 'KHALTI' | 'CASH'>('CASH');
+
+  useEffect(() => {
+    fetchApi('/payments/config')
+      .then((cfg) => setKhaltiConfigured(!!cfg.khaltiConfigured))
+      .catch(() => setKhaltiConfigured(false));
+  }, []);
 
   useEffect(() => {
     fetchApi('/services').then(data => {
@@ -90,6 +103,12 @@ export default function BookingPage() {
     });
   }, []);
 
+  useEffect(() => {
+    if (paymentMethod === 'KHALTI' && !khaltiConfigured) {
+      setPayFlow('manual');
+    }
+  }, [paymentMethod, khaltiConfigured]);
+
   const handleServiceChange = (serviceId: string) => {
     const s = services.find(x => x.id === serviceId);
     setSelectedService(s);
@@ -131,9 +150,9 @@ export default function BookingPage() {
         return;
       }
 
-      if (!useSandboxDemo) {
-        // Default, real path: no merchant API — customer sends the transfer
-        // manually and claims it; admin confirms against the actual wallet.
+      if (payFlow === 'manual') {
+        // Real money path: customer sends the transfer directly and claims
+        // it with a reference number; admin confirms against the wallet.
         setManualPaymentBooking({ id: bookingResult.id, amount: bookingResult.totalAmount });
         setSubmitting(false);
         return;
@@ -174,11 +193,15 @@ export default function BookingPage() {
 
   const handleClaimPayment = async () => {
     if (!manualPaymentBooking) return;
+    if (paymentReference.trim().length < 4) {
+      showToast('Enter the transaction ID from your eSewa/Khalti payment (at least 4 characters).', 'error');
+      return;
+    }
     setClaimingPayment(true);
     try {
       await fetchApi('/payments/manual/claim', {
         method: 'POST',
-        body: JSON.stringify({ bookingId: manualPaymentBooking.id }),
+        body: JSON.stringify({ bookingId: manualPaymentBooking.id, reference: paymentReference.trim() }),
       });
       showToast('Thanks! We\'ll confirm your payment shortly.', 'success');
       router.push(`/dashboard/customer?status=success&bookingId=${manualPaymentBooking.id}`);
@@ -399,8 +422,8 @@ export default function BookingPage() {
                 <div className="space-y-3">
                   {[
                     { key: 'CASH', name: 'Cash on Service Completion', desc: 'Pay directly to technician' },
-                    { key: 'ESEWA', name: 'eSewa', desc: `Send payment to ${MANUAL_PAYMENT_NUMBER} via the eSewa app` },
-                    { key: 'KHALTI', name: 'Khalti', desc: `Send payment to ${MANUAL_PAYMENT_NUMBER} via the Khalti app` },
+                    { key: 'ESEWA', name: 'eSewa', desc: 'Pay online via eSewa' },
+                    { key: 'KHALTI', name: 'Khalti', desc: 'Pay online via Khalti' },
                   ].map((p) => (
                     <div
                       key={p.key}
@@ -425,17 +448,49 @@ export default function BookingPage() {
                 </div>
 
                 {(paymentMethod === 'ESEWA' || paymentMethod === 'KHALTI') && (
-                  <label className="flex items-start gap-2 text-xs text-slate-500 dark:text-slate-400 pt-1">
-                    <input
-                      type="checkbox"
-                      checked={useSandboxDemo}
-                      onChange={(e) => setUseSandboxDemo(e.target.checked)}
-                      className="mt-0.5 w-3.5 h-3.5"
-                    />
-                    <span>
-                      Use the sandbox payment gateway integration instead (technical demo — test money only, no real payment reaches {MANUAL_PAYMENT_NUMBER})
-                    </span>
-                  </label>
+                  <div className="space-y-3 pt-1">
+                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">How would you like to pay?</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setPayFlow('checkout')}
+                        disabled={paymentMethod === 'KHALTI' && !khaltiConfigured}
+                        className={`text-left p-3 rounded-xl border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                          payFlow === 'checkout' ? 'border-[#328CC1] bg-[#328CC1]/5' : 'border-slate-200 dark:border-slate-700 hover:bg-sky-50 dark:hover:bg-slate-950'
+                        }`}
+                      >
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block">Open {paymentMethod === 'KHALTI' ? 'Khalti' : 'eSewa'} Checkout</span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">Redirects to {paymentMethod === 'KHALTI' ? 'Khalti' : 'eSewa'}, just like an online purchase</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPayFlow('manual')}
+                        className={`text-left p-3 rounded-xl border transition-all ${
+                          payFlow === 'manual' ? 'border-[#328CC1] bg-[#328CC1]/5' : 'border-slate-200 dark:border-slate-700 hover:bg-sky-50 dark:hover:bg-slate-950'
+                        }`}
+                      >
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block">Send Directly</span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">Pay {MANUAL_PAYMENT_NUMBER} yourself, confirmed by admin</span>
+                      </button>
+                    </div>
+
+                    {paymentMethod === 'KHALTI' && !khaltiConfigured && (
+                      <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold">
+                        Khalti checkout isn't set up yet on this deployment — use Send Directly, or try eSewa checkout instead.
+                      </p>
+                    )}
+
+                    {payFlow === 'checkout' && !(paymentMethod === 'KHALTI' && !khaltiConfigured) && (
+                      <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-xl p-3 text-[11px] text-amber-800 dark:text-amber-300 space-y-1">
+                        <p className="font-bold">🧪 Test environment — no real money moves through this option</p>
+                        {paymentMethod === 'ESEWA' ? (
+                          <p>Complete the real eSewa checkout with the test account: ID <strong>9711111111</strong>, password <strong>Nepal@123</strong>, MPIN <strong>1122</strong>, token <strong>123456</strong>.</p>
+                        ) : (
+                          <p>You'll be redirected to Khalti's real sandbox checkout to test the full flow.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -516,9 +571,25 @@ export default function BookingPage() {
               </div>
             </div>
 
+            <div className="text-left space-y-1.5">
+              <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">
+                Transaction ID from your payment
+              </label>
+              <input
+                type="text"
+                value={paymentReference}
+                onChange={(e) => setPaymentReference(e.target.value)}
+                placeholder="e.g. 000AB12CD3"
+                className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-sm focus:outline-[#328CC1]"
+              />
+              <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                Found in your eSewa/Khalti app's transaction history — this is what we check against.
+              </p>
+            </div>
+
             <button
               onClick={handleClaimPayment}
-              disabled={claimingPayment}
+              disabled={claimingPayment || paymentReference.trim().length < 4}
               className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send size={16} />

@@ -5,6 +5,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
+import { EmailService } from './email.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { User } from '../users/entities/user.entity';
@@ -24,6 +25,7 @@ import { User } from '../users/entities/user.entity';
   controllers: [AuthController],
   providers: [
     AuthService,
+    EmailService,
     // Make guards available globally
     {
       provide: APP_GUARD,

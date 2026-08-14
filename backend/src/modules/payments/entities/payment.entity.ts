@@ -42,6 +42,13 @@ export class Payment {
   @Column({ type: 'varchar', length: 100, unique: true, nullable: true })
   transactionUuid: string | null;
 
+  // Customer-supplied proof for the manual pay-to-number flow (the eSewa/
+  // Khalti transaction ID from their sent transfer) — gives the admin
+  // something concrete to check against their own wallet history instead
+  // of just trusting a bare "I paid" claim.
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  customerReference: string | null;
+
   @Column({ type: 'enum', enum: PaymentRecordStatus, default: PaymentRecordStatus.INITIATED })
   status: PaymentRecordStatus;
 
