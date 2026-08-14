@@ -1,9 +1,12 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { ServicesService } from '../services/services.service';
 import { UsersService } from '../users/users.service';
-import { AuthService } from '../auth/auth.service';
+import { Booking, BookingStatus, PaymentMethod, PaymentStatus } from './entities/booking.entity';
+import { User, UserRole } from '../users/entities/user.entity';
 
-export interface Booking {
+export interface BookingDto {
   id: string;
   bookingNumber: string;
   customerId: string;
@@ -15,7 +18,7 @@ export interface Booking {
   city: string;
   itemId: string;
   itemName: string;
-  status: 'PENDING' | 'ASSIGNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  status: BookingStatus;
   scheduledDate: string;
   scheduledTimeSlot: string;
   baseAmount: number;
@@ -24,74 +27,68 @@ export interface Booking {
   totalAmount: number;
   imagesBefore: string[];
   imagesAfter: string[];
-  paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
-  paymentMethod: 'ESEWA' | 'KHALTI' | 'CASH';
+  paymentStatus: PaymentStatus;
+  paymentMethod: PaymentMethod;
   createdAt: string;
 }
+
+const PLUMBING_SERVICE_NAME = 'Plumbing';
 
 @Injectable()
 export class BookingsService {
   constructor(
     private readonly servicesService: ServicesService,
     private readonly usersService: UsersService,
-    private readonly authService: AuthService,
-  ) {
-    this.bookings.push({
-      id: 'b-1',
-      bookingNumber: 'SN-2026-0001',
-      customerId: 'cust-uuid-1',
-      customerName: 'Sabin Shrestha',
-      customerPhone: '9841234567',
-      technicianId: 'tech-uuid-1',
-      technicianName: 'Ramesh Mali (Plumber)',
-      addressText: 'Lazimpat Rd, Ward 2, Kathmandu',
-      city: 'Kathmandu',
-      itemId: 'i1',
-      itemName: 'Tap Repair/Replacement',
-      status: 'ASSIGNED',
-      scheduledDate: '2026-06-23',
-      scheduledTimeSlot: '11:00 AM - 01:00 PM',
-      baseAmount: 350,
-      serviceFee: 50,
-      emergencySurcharge: 0,
-      totalAmount: 400,
-      imagesBefore: [],
-      imagesAfter: [],
-      paymentStatus: 'PENDING',
-      paymentMethod: 'CASH',
-      createdAt: new Date().toISOString(),
-    });
+    @InjectRepository(Booking)
+    private readonly bookingRepository: Repository<Booking>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+  ) {}
 
-    this.bookings.push({
-      id: 'b-2',
-      bookingNumber: 'SN-2026-0002',
-      customerId: 'cust-uuid-1',
-      customerName: 'Sabin Shrestha',
-      customerPhone: '9841234567',
-      technicianId: null,
-      technicianName: null,
-      addressText: 'Lazimpat Rd, Ward 2, Kathmandu',
-      city: 'Kathmandu',
-      itemId: 'i4',
-      itemName: 'Underground Tank Cleaning (up to 5000L)',
-      status: 'PENDING',
-      scheduledDate: '2026-06-25',
-      scheduledTimeSlot: '09:00 AM - 11:00 AM',
-      baseAmount: 2500,
-      serviceFee: 100,
-      emergencySurcharge: 0,
-      totalAmount: 2600,
-      imagesBefore: [],
-      imagesAfter: [],
-      paymentStatus: 'PENDING',
-      paymentMethod: 'ESEWA',
-      createdAt: new Date().toISOString(),
-    });
+  private toDto(booking: Booking): BookingDto {
+    return {
+      id: booking.id,
+      bookingNumber: booking.bookingNumber,
+      customerId: booking.customerId,
+      customerName: booking.customer?.fullName ?? 'Unknown Customer',
+      customerPhone: booking.customer?.phoneNumber ?? '',
+      technicianId: booking.technicianId,
+      technicianName: booking.technician?.fullName ?? null,
+      addressText: booking.address ? `${booking.address.street}, ${booking.address.city}` : '',
+      city: booking.address?.city ?? '',
+      itemId: booking.serviceItemId,
+      itemName: booking.serviceItem?.name ?? '',
+      status: booking.status,
+      scheduledDate: booking.scheduledDate,
+      scheduledTimeSlot: booking.scheduledTimeSlot,
+      baseAmount: booking.baseAmount,
+      serviceFee: booking.serviceFee,
+      emergencySurcharge: booking.emergencySurcharge,
+      totalAmount: booking.totalAmount,
+      imagesBefore: booking.imagesBefore,
+      imagesAfter: booking.imagesAfter,
+      paymentStatus: booking.paymentStatus,
+      paymentMethod: booking.paymentMethod,
+      createdAt: booking.createdAt.toISOString(),
+    };
   }
 
-  private bookings: Booking[] = [];
+  private async loadWithRelations(id: string): Promise<Booking> {
+    const booking = await this.bookingRepository.findOne({
+      where: { id },
+      relations: { customer: true, technician: true, address: true, serviceItem: true },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    return booking;
+  }
 
-  createBooking(
+  private generateBookingNumber(): string {
+    const year = new Date().getFullYear();
+    const suffix = Math.floor(1000 + Math.random() * 9000);
+    return `SN-${year}-${suffix}`;
+  }
+
+  async createBooking(
     userId: string,
     data: {
       itemId: string;
@@ -99,39 +96,37 @@ export class BookingsService {
       scheduledDate: string;
       scheduledTimeSlot: string;
       isEmergency: boolean;
-      paymentMethod: 'ESEWA' | 'KHALTI' | 'CASH';
+      paymentMethod: PaymentMethod;
       images?: string[];
     },
-  ): Booking {
-    const item = this.servicesService.findItemById(data.itemId);
+  ): Promise<BookingDto> {
+    const item = await this.servicesService.findItemById(data.itemId);
     if (!item) throw new NotFoundException('Service item not found');
 
-    const addressList = this.usersService.getAddresses(userId);
-    const address = addressList.find(a => a.id === data.addressId);
+    const address = await this.usersService.findAddressById(userId, data.addressId);
     if (!address) throw new BadRequestException('Invalid address ID selected');
 
-    const userProfile = this.getUserProfile(userId);
+    const customer = await this.userRepository.findOne({ where: { id: userId } });
+    if (!customer) throw new NotFoundException('Customer profile not found');
 
     const baseAmount = item.basePrice;
     const serviceFee = 50;
     const emergencySurcharge = data.isEmergency ? 300 : 0;
     const totalAmount = baseAmount + serviceFee + emergencySurcharge;
 
-    const bookingNum = `SN-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    // Auto-assign plumbing jobs to an available technician (demo dispatch rule)
+    let technician: User | null = null;
+    if (item.category?.service?.name === PLUMBING_SERVICE_NAME) {
+      technician = await this.userRepository.findOne({ where: { role: UserRole.TECHNICIAN } });
+    }
 
-    const newBooking: Booking = {
-      id: `b-${Math.random().toString(36).substring(2, 11)}`,
-      bookingNumber: bookingNum,
+    const booking = this.bookingRepository.create({
+      bookingNumber: this.generateBookingNumber(),
       customerId: userId,
-      customerName: userProfile?.fullName || 'Anonymous Customer',
-      customerPhone: userProfile?.phone || '9840000000',
-      technicianId: null,
-      technicianName: null,
-      addressText: `${address.street}, ${address.city}`,
-      city: address.city,
-      itemId: item.id,
-      itemName: item.name,
-      status: 'PENDING',
+      technicianId: technician?.id ?? null,
+      addressId: address.id,
+      serviceItemId: item.id,
+      status: technician ? BookingStatus.ASSIGNED : BookingStatus.PENDING,
       scheduledDate: data.scheduledDate,
       scheduledTimeSlot: data.scheduledTimeSlot,
       baseAmount,
@@ -140,69 +135,172 @@ export class BookingsService {
       totalAmount,
       imagesBefore: data.images || [],
       imagesAfter: [],
-      paymentStatus: 'PENDING',
+      paymentStatus: PaymentStatus.PENDING,
       paymentMethod: data.paymentMethod,
-      createdAt: new Date().toISOString(),
-    };
+    });
 
-    // Auto-assign plumbing items to the plumber
-    if (item.id === 'i1' || item.id === 'i2' || item.id === 'i3') {
-      newBooking.status = 'ASSIGNED';
-      newBooking.technicianId = 'tech-uuid-1';
-      newBooking.technicianName = 'Ramesh Mali (Plumber)';
+    let saved: Booking | undefined;
+    for (let attempt = 0; attempt < 5 && !saved; attempt++) {
+      try {
+        saved = await this.bookingRepository.save(booking);
+      } catch (err: any) {
+        if (err?.code === '23505' && attempt < 4) {
+          booking.bookingNumber = this.generateBookingNumber();
+          continue;
+        }
+        throw err;
+      }
     }
 
-    this.bookings.push(newBooking);
-    return newBooking;
+    return this.toDto({
+      ...saved!,
+      customer,
+      technician,
+      address,
+      serviceItem: item,
+    } as Booking);
   }
 
-  private getUserProfile(userId: string): { fullName: string; phone: string } | null {
-    const registry = this.authService.getUserRegistry();
-    const user = registry.find(u => u.id === userId);
-    if (!user) return null;
-    return { fullName: user.fullName, phone: user.phone };
+  async findAll(userId: string, role: string): Promise<BookingDto[]> {
+    const where =
+      role === 'ADMIN' || role === 'DISPATCHER'
+        ? {}
+        : role === 'TECHNICIAN'
+          ? { technicianId: userId }
+          : { customerId: userId };
+
+    const bookings = await this.bookingRepository.find({
+      where,
+      relations: { customer: true, technician: true, address: true, serviceItem: true },
+      order: { createdAt: 'DESC' },
+    });
+    return bookings.map((b) => this.toDto(b));
   }
 
-  findAll(userId: string, role: string): Booking[] {
-    if (role === 'ADMIN' || role === 'DISPATCHER') {
-      return this.bookings;
+  async findById(id: string): Promise<BookingDto> {
+    return this.toDto(await this.loadWithRelations(id));
+  }
+
+  async getInvoiceHtml(id: string, requester: { sub: string; role: string }): Promise<string> {
+    const booking = await this.loadWithRelations(id);
+    const isOwner = booking.customerId === requester.sub || booking.technicianId === requester.sub;
+    const isStaff = requester.role === 'ADMIN' || requester.role === 'DISPATCHER';
+    if (!isOwner && !isStaff) {
+      throw new ForbiddenException('You do not have access to this booking');
     }
-    if (role === 'TECHNICIAN') {
-      return this.bookings.filter(b => b.technicianId === userId);
-    }
-    return this.bookings.filter(b => b.customerId === userId);
+
+    const dto = this.toDto(booking);
+    const issuedAt = new Date(dto.createdAt).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+
+    return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Invoice ${dto.bookingNumber} — ServeNep</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #f8fafc; color: #1e293b; margin: 0; padding: 40px 20px; }
+  .sheet { max-width: 640px; margin: 0 auto; background: #fff; border-radius: 16px; padding: 40px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .brand-badge { background: #0B3C5D; color: #fff; font-weight: 900; font-size: 13px; padding: 8px 10px; border-radius: 8px; }
+  .brand-name { font-weight: 800; font-size: 20px; color: #0B3C5D; }
+  .subtitle { color: #64748b; font-size: 13px; margin-bottom: 28px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .meta { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 28px; border-bottom: 1px solid #e2e8f0; padding-bottom: 20px; }
+  .status { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; background: #ecfdf5; color: #059669; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 24px; }
+  td { padding: 10px 0; border-bottom: 1px solid #f1f5f9; }
+  td.label { color: #64748b; }
+  td.value { text-align: right; font-weight: 600; }
+  .total-row td { border-top: 2px solid #1e293b; border-bottom: none; font-size: 16px; font-weight: 800; padding-top: 16px; color: #0B3C5D; }
+  .actions { text-align: center; margin-top: 24px; }
+  .print-btn { background: #328CC1; color: #fff; border: none; padding: 10px 22px; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .footer { text-align: center; color: #94a3b8; font-size: 11px; margin-top: 24px; }
+  @media print { body { background: #fff; padding: 0; } .sheet { box-shadow: none; border-radius: 0; } .actions { display: none; } }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="brand">
+      <span class="brand-badge">SN</span>
+      <span class="brand-name">ServeNep</span>
+    </div>
+    <p class="subtitle">On-demand home services marketplace — Kathmandu Valley</p>
+
+    <h1>Invoice ${dto.bookingNumber}</h1>
+    <div class="meta">
+      <span>Issued ${issuedAt}</span>
+      <span class="status">${dto.status.replace('_', ' ')}</span>
+    </div>
+
+    <table>
+      <tr><td class="label">Customer</td><td class="value">${dto.customerName}</td></tr>
+      <tr><td class="label">Phone</td><td class="value">${dto.customerPhone}</td></tr>
+      <tr><td class="label">Service</td><td class="value">${dto.itemName}</td></tr>
+      <tr><td class="label">Technician</td><td class="value">${dto.technicianName ?? 'Not yet assigned'}</td></tr>
+      <tr><td class="label">Address</td><td class="value">${dto.addressText}</td></tr>
+      <tr><td class="label">Scheduled</td><td class="value">${dto.scheduledDate}, ${dto.scheduledTimeSlot}</td></tr>
+      <tr><td class="label">Payment Method</td><td class="value">${dto.paymentMethod}</td></tr>
+      <tr><td class="label">Payment Status</td><td class="value">${dto.paymentStatus}</td></tr>
+    </table>
+
+    <table>
+      <tr><td class="label">Base Charge</td><td class="value">Rs. ${dto.baseAmount.toFixed(2)}</td></tr>
+      <tr><td class="label">Service Fee</td><td class="value">Rs. ${dto.serviceFee.toFixed(2)}</td></tr>
+      ${dto.emergencySurcharge > 0 ? `<tr><td class="label">Emergency Surcharge</td><td class="value">Rs. ${dto.emergencySurcharge.toFixed(2)}</td></tr>` : ''}
+      <tr class="total-row"><td>Total</td><td class="value">Rs. ${dto.totalAmount.toFixed(2)}</td></tr>
+    </table>
+
+    <div class="actions">
+      <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+    </div>
+
+    <p class="footer">Thank you for booking with ServeNep. This is a system-generated invoice.</p>
+  </div>
+</body>
+</html>`;
   }
 
-  findById(id: string): Booking {
-    const booking = this.bookings.find(b => b.id === id);
-    if (!booking) throw new NotFoundException('Booking not found');
-    return booking;
+  async findIdsByTechnician(technicianId: string): Promise<string[]> {
+    const bookings = await this.bookingRepository.find({
+      where: { technicianId },
+      select: { id: true },
+    });
+    return bookings.map((b) => b.id);
   }
 
-  updateStatus(
-    id: string,
-    status: Booking['status'],
-    imagesAfter?: string[],
-  ): Booking {
-    const booking = this.findById(id);
+  async updateStatus(id: string, status: BookingStatus, imagesAfter?: string[]): Promise<BookingDto> {
+    const booking = await this.loadWithRelations(id);
     booking.status = status;
-    if (status === 'COMPLETED' && imagesAfter) {
+    if (status === BookingStatus.COMPLETED && imagesAfter) {
       booking.imagesAfter = imagesAfter;
     }
-    return booking;
+    await this.bookingRepository.save(booking);
+    return this.toDto(booking);
   }
 
-  updatePaymentStatus(id: string, paymentStatus: Booking['paymentStatus']): Booking {
-    const booking = this.findById(id);
+  async updatePaymentStatus(id: string, paymentStatus: PaymentStatus): Promise<BookingDto> {
+    const booking = await this.loadWithRelations(id);
     booking.paymentStatus = paymentStatus;
-    return booking;
+    await this.bookingRepository.save(booking);
+    return this.toDto(booking);
   }
 
-  assignTechnician(id: string, technicianId: string, technicianName: string): Booking {
-    const booking = this.findById(id);
-    booking.status = 'ASSIGNED';
-    booking.technicianId = technicianId;
-    booking.technicianName = technicianName;
-    return booking;
+  async assignTechnician(id: string, technicianId: string): Promise<BookingDto> {
+    const booking = await this.loadWithRelations(id);
+    const technician = await this.userRepository.findOne({
+      where: { id: technicianId, role: UserRole.TECHNICIAN },
+    });
+    if (!technician) throw new BadRequestException('Technician not found');
+
+    booking.status = BookingStatus.ASSIGNED;
+    booking.technicianId = technician.id;
+    booking.technician = technician;
+    await this.bookingRepository.save(booking);
+    return this.toDto(booking);
   }
 }

@@ -17,8 +17,8 @@ export class ServicesController {
 
   @Get(':slug')
   @ApiOperation({ summary: 'Get a specific service by slug' })
-  findBySlug(@Param('slug') slug: string) {
-    const service = this.servicesService.findBySlug(slug);
+  async findBySlug(@Param('slug') slug: string) {
+    const service = await this.servicesService.findBySlug(slug);
     if (!service) {
       throw new NotFoundException(`Service with slug ${slug} not found`);
     }
@@ -27,11 +27,11 @@ export class ServicesController {
 
   @Get(':serviceSlug/:categorySlug')
   @ApiOperation({ summary: 'Get specific service category detail' })
-  findCategory(
+  async findCategory(
     @Param('serviceSlug') serviceSlug: string,
     @Param('categorySlug') categorySlug: string,
   ) {
-    const category = this.servicesService.findCategoryBySlug(serviceSlug, categorySlug);
+    const category = await this.servicesService.findCategoryBySlug(serviceSlug, categorySlug);
     if (!category) {
       throw new NotFoundException(
         `Category ${categorySlug} under service ${serviceSlug} not found`,

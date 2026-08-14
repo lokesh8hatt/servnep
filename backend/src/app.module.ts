@@ -8,6 +8,7 @@ import { BookingsModule } from './modules/bookings/bookings.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import configuration from './config/configuration';
+import { SnakeNamingStrategy } from './database/snake-naming.strategy';
 
 @Module({
   imports: [
@@ -24,8 +25,9 @@ import configuration from './config/configuration';
         port: config.get<number>('database.port'),
         username: config.get<string>('database.username'),
         password: config.get<string>('database.password'),
-        database: config.get<string>('database.name'),
+        database: config.get<string>('database.database'),
         autoLoadEntities: true,
+        namingStrategy: new SnakeNamingStrategy(),
         synchronize: process.env.NODE_ENV !== 'production',
         logging: process.env.NODE_ENV !== 'production' ? ['error', 'warn'] : ['error'],
         retryAttempts: 3,

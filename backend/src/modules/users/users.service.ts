@@ -1,66 +1,63 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { AuthService } from '../auth/auth.service';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User } from './entities/user.entity';
+import { Address } from './entities/address.entity';
 
-export interface Address {
-  id: string;
-  label: string;
-  street: string;
-  city: string;
-  lat: number;
-  lng: number;
-}
+const DEFAULT_AVATAR_URL =
+  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly authService: AuthService) {
-    this.addresses.set('cust-uuid-1', [
-      {
-        id: 'addr-1',
-        label: 'Home',
-        street: 'Lazimpat Rd, Ward 2',
-        city: 'Kathmandu',
-        lat: 27.7196,
-        lng: 85.3240,
-      },
-    ]);
-  }
-
-  private addresses = new Map<string, Address[]>();
+  constructor(
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+    @InjectRepository(Address)
+    private readonly addressRepository: Repository<Address>,
+  ) {}
 
   async getProfile(userId: string) {
-    const registry = this.authService.getUserRegistry();
-    const user = registry.find(u => u.id === userId);
+    const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User profile not found');
-    
+
     return {
-      ...user,
-      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
-      referralCode: `NEP-${user.phone.slice(-4)}`,
-      addresses: this.getAddresses(userId),
+      id: user.id,
+      phone: user.phoneNumber,
+      role: user.role,
+      fullName: user.fullName,
+      avatarUrl: user.avatarUrl || DEFAULT_AVATAR_URL,
+      referralCode: `NEP-${user.phoneNumber.slice(-4)}`,
+      addresses: await this.getAddresses(userId),
     };
   }
 
   async updateProfile(userId: string, data: { fullName: string }) {
-    const updated = this.authService.updateProfile(userId, data);
-    if (!updated) throw new NotFoundException('User profile not found');
+    // Sanitize input - strip HTML tags to prevent XSS
+    const sanitizedName = data.fullName.replace(/<[^>]*>/g, '').trim();
+    if (!sanitizedName || sanitizedName.length < 2) {
+      throw new BadRequestException('Full name must be at least 2 characters');
+    }
+    if (sanitizedName.length > 100) {
+      throw new BadRequestException('Full name must not exceed 100 characters');
+    }
+
+    const result = await this.userRepository.update({ id: userId }, { fullName: sanitizedName });
+    if (!result.affected) throw new NotFoundException('User profile not found');
     return this.getProfile(userId);
   }
 
-  getAddresses(userId: string): Address[] {
-    if (!this.addresses.has(userId)) {
-      this.addresses.set(userId, []);
-    }
-    return this.addresses.get(userId) || [];
+  async getAddresses(userId: string): Promise<Address[]> {
+    return this.addressRepository.find({ where: { userId }, order: { createdAt: 'ASC' } });
   }
 
-  addAddress(userId: string, address: Omit<Address, 'id'>): Address {
-    const list = this.getAddresses(userId);
-    const newAddr: Address = {
-      id: `addr-${Math.random().toString(36).substring(2, 11)}`,
-      ...address,
-    };
-    list.push(newAddr);
-    this.addresses.set(userId, list);
-    return newAddr;
+  async findAddressById(userId: string, addressId: string): Promise<Address | null> {
+    return this.addressRepository.findOne({ where: { id: addressId, userId } });
+  }
+
+  async addAddress(
+    userId: string,
+    address: { label: string; street: string; city: string; lat: number; lng: number },
+  ): Promise<Address> {
+    return this.addressRepository.save(this.addressRepository.create({ userId, ...address }));
   }
 }

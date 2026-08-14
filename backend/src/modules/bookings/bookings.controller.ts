@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, UseGuards, Header } from '@nestjs/common';
 import { BookingsService } from './bookings.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -6,6 +6,7 @@ import { CurrentUser, UserPayload } from '../../common/decorators/user.decorator
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, IsBoolean, IsOptional, IsArray, IsIn } from 'class-validator';
+import { BookingStatus, PaymentMethod } from './entities/booking.entity';
 
 class CreateBookingDto {
   @ApiProperty({ example: 'i1' })
@@ -36,7 +37,7 @@ class CreateBookingDto {
   @IsNotEmpty()
   @IsString()
   @IsIn(['ESEWA', 'KHALTI', 'CASH'])
-  paymentMethod: 'ESEWA' | 'KHALTI' | 'CASH';
+  paymentMethod: PaymentMethod;
 
   @ApiProperty({ example: [], required: false })
   @IsOptional()
@@ -50,7 +51,7 @@ class UpdateStatusDto {
   @IsNotEmpty()
   @IsString()
   @IsIn(['ASSIGNED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'])
-  status: 'PENDING' | 'ASSIGNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  status: BookingStatus;
 
   @ApiProperty({ example: [], required: false })
   @IsOptional()
@@ -64,11 +65,6 @@ class ManualAssignDto {
   @IsNotEmpty()
   @IsString()
   technicianId: string;
-
-  @ApiProperty({ example: 'Ramesh Mali (Plumber)' })
-  @IsNotEmpty()
-  @IsString()
-  technicianName: string;
 }
 
 @ApiTags('Bookings & Jobs')
@@ -96,6 +92,13 @@ export class BookingsController {
     return this.bookingsService.findById(id);
   }
 
+  @Get(':id/invoice')
+  @ApiOperation({ summary: 'Get a printable HTML invoice for a booking' })
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  getInvoice(@Param('id') id: string, @CurrentUser() user: UserPayload) {
+    return this.bookingsService.getInvoiceHtml(id, user);
+  }
+
   @Patch(':id/status')
   @Roles('ADMIN', 'DISPATCHER', 'TECHNICIAN')
   @ApiOperation({ summary: 'Update the progress status of a job' })
@@ -107,6 +110,6 @@ export class BookingsController {
   @Roles('ADMIN', 'DISPATCHER')
   @ApiOperation({ summary: 'Manually dispatch/assign a technician' })
   assignTechnician(@Param('id') id: string, @Body() dto: ManualAssignDto) {
-    return this.bookingsService.assignTechnician(id, dto.technicianId, dto.technicianName);
+    return this.bookingsService.assignTechnician(id, dto.technicianId);
   }
 }

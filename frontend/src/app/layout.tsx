@@ -1,6 +1,25 @@
 import type { Metadata } from "next";
 import { AuthProvider } from "@/context/AuthContext";
+import { ThemeProvider } from "@/context/ThemeContext";
+import { SoundProvider } from "@/context/SoundContext";
+import { ToastProvider } from "@/context/ToastContext";
+import { ToastContainer } from "@/components/ToastContainer";
 import "./globals.css";
+
+// Runs before React hydrates so the correct theme class is already on <html>
+// when the page first paints — without this, the page would flash light
+// mode for a moment even when the user has dark mode selected.
+const themeInitScript = `
+(function () {
+  try {
+    var stored = localStorage.getItem('sn_theme');
+    var theme = stored === 'dark' || stored === 'light'
+      ? stored
+      : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    if (theme === 'dark') document.documentElement.classList.add('dark');
+  } catch (e) {}
+})();
+`;
 
 export const metadata: Metadata = {
   title: "ServeNep | On-Demand Home Services Platform in Nepal",
@@ -47,20 +66,28 @@ export default function RootLayout({
   };
 
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
       </head>
-      <body className="antialiased">
-        <AuthProvider>
-          {children}
-        </AuthProvider>
+      <body className="antialiased" suppressHydrationWarning>
+        <ThemeProvider>
+          <SoundProvider>
+            <ToastProvider>
+              <AuthProvider>
+                {children}
+              </AuthProvider>
+              <ToastContainer />
+            </ToastProvider>
+          </SoundProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

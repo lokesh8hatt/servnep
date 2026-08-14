@@ -1,18 +1,22 @@
-import { Injectable, UnauthorizedException, BadRequestException, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ForbiddenException, HttpException, HttpStatus } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
+import { User, UserRole } from '../users/entities/user.entity';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
   ) {}
 
   private otpStorage = new Map<string, { code: string; expiresAt: Date }>();
-  private userRegistry = new Map<string, { id: string; phone: string; role: string; fullName: string }>();
-  
+
   // Rate limiting: Track OTP requests per phone number
   private otpRateLimit = new Map<string, { count: number; windowStart: number }>();
   private readonly OTP_MAX_REQUESTS = 3;
@@ -21,7 +25,7 @@ export class AuthService {
   private checkRateLimit(phoneNumber: string): void {
     const now = Date.now();
     const record = this.otpRateLimit.get(phoneNumber);
-    
+
     if (record && now - record.windowStart < this.OTP_WINDOW_MS) {
       if (record.count >= this.OTP_MAX_REQUESTS) {
         const retryAfter = Math.ceil((this.OTP_WINDOW_MS - (now - record.windowStart)) / 1000 / 60);
@@ -36,7 +40,7 @@ export class AuthService {
     }
   }
 
-  async requestOtp(phoneNumber: string): Promise<{ message: string }> {
+  async requestOtp(phoneNumber: string): Promise<{ message: string; devOtp?: string }> {
     if (!phoneNumber || phoneNumber.length < 10) {
       throw new BadRequestException('Invalid Nepalese phone number');
     }
@@ -48,19 +52,26 @@ export class AuthService {
     const otpCode = crypto.randomInt(100000, 999999).toString();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes expiry
     this.otpStorage.set(phoneNumber, { code: otpCode, expiresAt });
-    
-    // In production, this would call an SMS gateway API
-    // OTP is only logged in development for testing
-    if (process.env.NODE_ENV !== 'production') {
+
+    // In production, this would call an SMS gateway API instead.
+    // Outside production there's no SMS gateway wired up, so the OTP is both
+    // logged (for terminal access) and returned in the response (devOtp) so
+    // the login page can surface it directly — no server console needed.
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (!isProduction) {
       console.log(`[DEV] OTP for ${phoneNumber}: ${otpCode}`);
     }
-    
+
     return {
       message: 'OTP sent successfully via SMS',
+      ...(isProduction ? {} : { devOtp: otpCode }),
     };
   }
 
-  async verifyOtp(phoneNumber: string, otpCode: string): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+  async verifyOtp(
+    phoneNumber: string,
+    otpCode: string,
+  ): Promise<{ accessToken: string; refreshToken: string; user: { id: string; phone: string; role: UserRole; fullName: string } }> {
     const record = this.otpStorage.get(phoneNumber);
     if (!record) {
       throw new UnauthorizedException('No OTP request found for this phone number. Please request a new OTP.');
@@ -77,26 +88,59 @@ export class AuthService {
     this.otpStorage.delete(phoneNumber);
 
     // Find or create user
-    let user = this.userRegistry.get(phoneNumber);
+    let user = await this.userRepository.findOne({ where: { phoneNumber } });
     if (!user) {
-      const newId = `user-uuid-${crypto.randomUUID().substring(0, 8)}`;
-      user = {
-        id: newId,
-        phone: phoneNumber,
-        role: 'CUSTOMER',
-        fullName: 'New Customer',
-      };
-      this.userRegistry.set(phoneNumber, user);
+      user = await this.userRepository.save(
+        this.userRepository.create({
+          phoneNumber,
+          role: UserRole.CUSTOMER,
+          fullName: 'New Customer',
+        }),
+      );
     }
 
-    const payload = { sub: user.id, phone: user.phone, role: user.role, name: user.fullName };
+    return this.issueSession(user);
+  }
+
+  /**
+   * One-click login with no phone number or OTP at all, for local demo/testing.
+   * Never available in production — there's no real SMS gateway to bypass there,
+   * only a genuine credential check that must not be skippable.
+   */
+  async devLogin(role: UserRole): Promise<{ accessToken: string; refreshToken: string; user: { id: string; phone: string; role: UserRole; fullName: string } }> {
+    if (process.env.NODE_ENV === 'production') {
+      throw new ForbiddenException('Instant demo login is not available in production');
+    }
+
+    let user = await this.userRepository.findOne({ where: { role } });
+    if (!user) {
+      const namesByRole: Record<UserRole, string> = {
+        [UserRole.CUSTOMER]: 'Demo Customer',
+        [UserRole.TECHNICIAN]: 'Demo Technician',
+        [UserRole.ADMIN]: 'Demo Admin',
+        [UserRole.DISPATCHER]: 'Demo Dispatcher',
+      };
+      user = await this.userRepository.save(
+        this.userRepository.create({
+          phoneNumber: `9${crypto.randomInt(100000000, 999999999)}`,
+          role,
+          fullName: namesByRole[role],
+        }),
+      );
+    }
+
+    return this.issueSession(user);
+  }
+
+  private issueSession(user: User) {
+    const payload = { sub: user.id, phone: user.phoneNumber, role: user.role, name: user.fullName };
     const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
     const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
 
     return {
       accessToken,
       refreshToken,
-      user,
+      user: { id: user.id, phone: user.phoneNumber, role: user.role, fullName: user.fullName },
     };
   }
 
@@ -109,16 +153,16 @@ export class AuthService {
       const payload = await this.jwtService.verifyAsync(token, {
         secret: this.configService.get<string>('jwt.secret'),
       });
-      
+
       // Add token to blacklist until it would have expired naturally
       const expiresIn = payload.exp ? payload.exp * 1000 - Date.now() : 3600000;
       this.tokenBlacklist.add(token);
-      
+
       // Schedule removal from blacklist after token expiration
       setTimeout(() => {
         this.tokenBlacklist.delete(token);
       }, Math.max(expiresIn, 60000)); // minimum 1 minute cleanup
-      
+
       return { message: 'Successfully logged out. Token invalidated.' };
     } catch {
       throw new UnauthorizedException('Invalid token');
@@ -127,29 +171,5 @@ export class AuthService {
 
   isTokenBlacklisted(token: string): boolean {
     return this.tokenBlacklist.has(token);
-  }
-
-  getUserRegistry() {
-    return Array.from(this.userRegistry.values());
-  }
-
-  updateProfile(userId: string, data: { fullName: string }) {
-    // Sanitize input - strip HTML tags to prevent XSS
-    const sanitizedName = data.fullName.replace(/<[^>]*>/g, '').trim();
-    if (!sanitizedName || sanitizedName.length < 2) {
-      throw new BadRequestException('Full name must be at least 2 characters');
-    }
-    if (sanitizedName.length > 100) {
-      throw new BadRequestException('Full name must not exceed 100 characters');
-    }
-
-    for (const [phone, user] of this.userRegistry.entries()) {
-      if (user.id === userId) {
-        user.fullName = sanitizedName;
-        this.userRegistry.set(phone, user);
-        return user;
-      }
-    }
-    return null;
   }
 }

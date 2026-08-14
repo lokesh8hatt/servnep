@@ -9,12 +9,18 @@
   --font-heading: 'Plus Jakarta Sans', sans-serif;
 }
 
+.dark {
+  --background: #0F172A;
+  --foreground: #E2E8F0;
+}
+
 body {
   background-color: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
   margin: 0;
   padding: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .gradient-hero {
@@ -73,4 +79,25 @@ body {
 }
 .btn-outline:hover {
   background-color: #f8fafc;
+}
+.dark .btn-outline {
+  border-color: #475569;
+  color: #E2E8F0;
+}
+.dark .btn-outline:hover {
+  background-color: #1e293b;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.toast-enter {
+  animation: toast-in 0.2s ease-out;
 }

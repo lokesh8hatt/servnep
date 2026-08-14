@@ -6,9 +6,15 @@ import { fetchApi } from '@/lib/api';
 import { AuthGuard } from '@/context/AuthGuard';
 import { useAuth } from '@/context/AuthContext';
 import { TrendingUp, Users, ShoppingBag, CheckCircle, Clock, Send, RefreshCw, LogOut, Shield } from 'lucide-react';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { SoundToggle } from '@/components/SoundToggle';
+import { useSound } from '@/context/SoundContext';
+import { useToast } from '@/context/ToastContext';
 
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
+  const { play } = useSound();
+  const { showToast } = useToast();
   const [bookings, setBookings] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState('ALL');
 
@@ -17,6 +23,7 @@ export default function AdminDashboard() {
       const data = await fetchApi('/bookings');
       setBookings(data);
     } catch {
+      showToast('Please log in to continue.', 'error');
       logout();
     }
   };
@@ -30,15 +37,25 @@ export default function AdminDashboard() {
     logout();
   };
 
+  // Demo-only: dispatches the single seeded demo technician (see backend/src/database/seed.ts).
+  // A real technician picker is out of scope for this pass.
+  const DEMO_TECHNICIAN_ID = '00000000-0000-4000-8000-000000000002';
+
   const handleManualDispatch = async (bookingId: string) => {
-    await fetchApi(`/bookings/${bookingId}/assign`, {
-      method: 'POST',
-      body: JSON.stringify({
-        technicianId: 'tech-uuid-1',
-        technicianName: 'Ramesh Mali (Plumber)',
-      }),
-    });
-    loadData();
+    try {
+      await fetchApi(`/bookings/${bookingId}/assign`, {
+        method: 'POST',
+        body: JSON.stringify({
+          technicianId: DEMO_TECHNICIAN_ID,
+        }),
+      });
+      play('success');
+      showToast('Technician dispatched.', 'success');
+      loadData();
+    } catch (err: any) {
+      play('error');
+      showToast(err.message || 'Could not dispatch a technician. Please try again.', 'error');
+    }
   };
 
   const getStats = () => {
@@ -58,18 +75,20 @@ export default function AdminDashboard() {
 
   return (
     <AuthGuard requiredRole="ADMIN">
-      <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-        <header className="bg-white border-b px-6 py-4 flex items-center justify-between shadow-xs">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
+        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-6 py-4 flex items-center justify-between shadow-xs dark:shadow-none">
           <Link href="/" className="flex items-center gap-2">
             <div className="bg-[#0B3C5D] text-white p-2 rounded-lg text-xs font-black">SN</div>
-            <span className="font-heading font-extrabold text-lg text-[#0B3C5D]">ServeNep</span>
+            <span className="font-heading font-extrabold text-lg text-[#0B3C5D] dark:text-sky-300">ServeNep</span>
           </Link>
           <div className="flex items-center gap-3">
             <span className="bg-purple-500/15 text-purple-600 px-3.5 py-1 rounded-full text-xs font-bold flex items-center gap-1.5">
               <Shield size={12} />
               Admin Control
             </span>
-            <button onClick={handleLogout} title="Logout" aria-label="Logout" className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400 hover:text-red-500">
+            <ThemeToggle />
+            <SoundToggle />
+            <button onClick={handleLogout} title="Logout" aria-label="Logout" className="p-2 hover:bg-slate-100 dark:bg-slate-800 rounded-xl transition-colors text-slate-400 dark:text-slate-500 hover:text-red-500">
               <LogOut size={18} />
             </button>
           </div>
@@ -79,51 +98,51 @@ export default function AdminDashboard() {
           
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/50 shadow-xs flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 flex items-center justify-center">
                 <ShoppingBag size={24} />
               </div>
               <div>
-                <span className="text-xs text-slate-500 block uppercase font-bold">Total Bookings</span>
-                <h3 className="font-heading font-black text-xl text-slate-800">{stats.totalBookings}</h3>
+                <span className="text-xs text-slate-500 dark:text-slate-400 block uppercase font-bold">Total Bookings</span>
+                <h3 className="font-heading font-black text-xl text-slate-800 dark:text-slate-100">{stats.totalBookings}</h3>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/50 shadow-xs flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
                 <CheckCircle size={24} />
               </div>
               <div>
-                <span className="text-xs text-slate-500 block uppercase font-bold">Completed</span>
-                <h3 className="font-heading font-black text-xl text-slate-800">{stats.completed}</h3>
+                <span className="text-xs text-slate-500 dark:text-slate-400 block uppercase font-bold">Completed</span>
+                <h3 className="font-heading font-black text-xl text-slate-800 dark:text-slate-100">{stats.completed}</h3>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/50 shadow-xs flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-500 flex items-center justify-center">
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-500 flex items-center justify-center">
                 <TrendingUp size={24} />
               </div>
               <div>
-                <span className="text-xs text-slate-500 block uppercase font-bold">Revenue</span>
-                <h3 className="font-heading font-black text-xl text-slate-800">Rs. {stats.revenue}</h3>
+                <span className="text-xs text-slate-500 dark:text-slate-400 block uppercase font-bold">Revenue</span>
+                <h3 className="font-heading font-black text-xl text-slate-800 dark:text-slate-100">Rs. {stats.revenue}</h3>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/50 shadow-xs flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 flex items-center justify-center">
                 <Users size={24} />
               </div>
               <div>
-                <span className="text-xs text-slate-500 block uppercase font-bold">Active Pros</span>
-                <h3 className="font-heading font-black text-xl text-slate-800">{stats.activeTechs}</h3>
+                <span className="text-xs text-slate-500 dark:text-slate-400 block uppercase font-bold">Active Pros</span>
+                <h3 className="font-heading font-black text-xl text-slate-800 dark:text-slate-100">{stats.activeTechs}</h3>
               </div>
             </div>
           </div>
 
           {/* Dispatch Engine */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200/50 shadow-xs space-y-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b pb-4">
-              <h2 className="font-heading text-lg font-extrabold text-[#0B3C5D]">Booking Dispatch Engine</h2>
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-200 dark:border-slate-700 pb-4">
+              <h2 className="font-heading text-lg font-extrabold text-[#0B3C5D] dark:text-sky-300">Booking Dispatch Engine</h2>
               
               <div className="flex gap-2 flex-wrap">
                 {['ALL', 'PENDING', 'ASSIGNED', 'IN_PROGRESS', 'COMPLETED'].map((tab) => (
@@ -133,22 +152,22 @@ export default function AdminDashboard() {
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                       activeTab === tab
                         ? 'bg-slate-900 text-white'
-                        : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                        : 'bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:bg-slate-800'
                     }`}
                   >
                     {tab}
                   </button>
                 ))}
-                <button onClick={loadData} className="p-2 bg-slate-50 border rounded-lg text-slate-500 hover:bg-slate-100" title="Refresh" aria-label="Refresh">
+                <button onClick={loadData} className="p-2 bg-slate-50 dark:bg-slate-950 border rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:bg-slate-800" title="Refresh" aria-label="Refresh">
                   <RefreshCw size={14} />
                 </button>
               </div>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs font-semibold text-slate-600">
+              <table className="w-full text-left text-xs font-semibold text-slate-600 dark:text-slate-300">
                 <thead>
-                  <tr className="border-b text-slate-400 uppercase text-xs tracking-wider">
+                  <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 uppercase text-xs tracking-wider">
                     <th className="py-3 pr-4">Booking</th>
                     <th className="py-3 pr-4">Customer</th>
                     <th className="py-3 pr-4">Service</th>
@@ -161,21 +180,21 @@ export default function AdminDashboard() {
                 <tbody>
                   {filteredBookings.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-400">No bookings found for this filter</td>
+                      <td colSpan={7} className="py-12 text-center text-slate-400 dark:text-slate-500">No bookings found for this filter</td>
                     </tr>
                   ) : (
                     filteredBookings.map((b) => (
-                      <tr key={b.id} className="border-b hover:bg-slate-50/50 transition-colors">
-                        <td className="py-4 pr-4 font-bold text-slate-800">{b.bookingNumber}</td>
+                      <tr key={b.id} className="border-b border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:bg-slate-950/50 transition-colors">
+                        <td className="py-4 pr-4 font-bold text-slate-800 dark:text-slate-100">{b.bookingNumber}</td>
                         <td className="py-4 pr-4">
-                          <p className="font-bold text-slate-800">{b.customerName}</p>
-                          <p className="text-[10px] text-slate-500">{b.customerPhone}</p>
+                          <p className="font-bold text-slate-800 dark:text-slate-100">{b.customerName}</p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400">{b.customerPhone}</p>
                         </td>
                         <td className="py-4 pr-4 font-bold text-primary">{b.itemName}</td>
                         <td className="py-4 pr-4">{b.city}</td>
                         <td className="py-4 pr-4">
                           {b.technicianName ? (
-                            <span className="font-bold text-slate-800">{b.technicianName}</span>
+                            <span className="font-bold text-slate-800 dark:text-slate-100">{b.technicianName}</span>
                           ) : (
                             <span className="text-amber-500 font-bold flex items-center gap-1">
                               <Clock size={12} /> Pending
@@ -188,7 +207,7 @@ export default function AdminDashboard() {
                           }`}>
                             {b.paymentStatus}
                           </span>
-                          <span className="text-slate-400"> ({b.paymentMethod})</span>
+                          <span className="text-slate-400 dark:text-slate-500"> ({b.paymentMethod})</span>
                         </td>
                         <td className="py-4 text-right">
                           {!b.technicianId && (

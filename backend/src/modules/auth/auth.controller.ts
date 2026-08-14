@@ -2,7 +2,8 @@ import { Controller, Post, Body, Headers, HttpCode } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { ApiTags, ApiOperation, ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, Length } from 'class-validator';
+import { IsNotEmpty, IsString, IsIn, Length } from 'class-validator';
+import { UserRole } from '../users/entities/user.entity';
 
 class RequestOtpDto {
   @ApiProperty({ example: '9841234567', description: 'Nepalese phone number' })
@@ -25,6 +26,14 @@ class VerifyOtpDto {
   otpCode: string;
 }
 
+class DevLoginDto {
+  @ApiProperty({ example: 'CUSTOMER', enum: ['CUSTOMER', 'TECHNICIAN', 'ADMIN', 'DISPATCHER'] })
+  @IsNotEmpty()
+  @IsString()
+  @IsIn(['CUSTOMER', 'TECHNICIAN', 'ADMIN', 'DISPATCHER'])
+  role: UserRole;
+}
+
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
@@ -42,6 +51,13 @@ export class AuthController {
   @ApiOperation({ summary: 'Verify OTP and return JWT session tokens' })
   verifyOtp(@Body() dto: VerifyOtpDto) {
     return this.authService.verifyOtp(dto.phoneNumber, dto.otpCode);
+  }
+
+  @Public()
+  @Post('dev-login')
+  @ApiOperation({ summary: 'Instant one-click login with no OTP, for local demo/testing only (403 in production)' })
+  devLogin(@Body() dto: DevLoginDto) {
+    return this.authService.devLogin(dto.role);
   }
 
   @Post('logout')
