@@ -4,16 +4,24 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { fetchApi } from '@/lib/api';
-import { MapPin, Calendar, Clock, CreditCard, ChevronRight, ShoppingBag } from 'lucide-react';
+import { MapPin, Calendar, Clock, CreditCard, ChevronRight, ShoppingBag, Send, Smartphone } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SoundToggle } from '@/components/SoundToggle';
 import { useToast } from '@/context/ToastContext';
+
+// Real money, no merchant API — customers send eSewa/Khalti transfers here
+// directly, then claim the payment; an admin confirms it against the actual
+// wallet before it's marked paid. See PaymentsService.claimManualPayment.
+const MANUAL_PAYMENT_NUMBER = '9868918609';
 
 export default function BookingPage() {
   const router = useRouter();
   const { showToast } = useToast();
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [useSandboxDemo, setUseSandboxDemo] = useState(false);
+  const [manualPaymentBooking, setManualPaymentBooking] = useState<{ id: string; amount: number } | null>(null);
+  const [claimingPayment, setClaimingPayment] = useState(false);
   const [services, setServices] = useState<any[]>([]);
   const [selectedService, setSelectedService] = useState<any>(null);
   const [selectedItem, setSelectedItem] = useState<any>(null);
@@ -117,45 +125,66 @@ export default function BookingPage() {
         }),
       });
 
+      if (paymentMethod === 'CASH') {
+        showToast('Booking confirmed! We\'ll assign a technician shortly.', 'success');
+        router.push(`/dashboard/customer?status=success&bookingId=${bookingResult.id}&msg=cash_confirmed`);
+        return;
+      }
+
+      if (!useSandboxDemo) {
+        // Default, real path: no merchant API — customer sends the transfer
+        // manually and claims it; admin confirms against the actual wallet.
+        setManualPaymentBooking({ id: bookingResult.id, amount: bookingResult.totalAmount });
+        setSubmitting(false);
+        return;
+      }
+
       if (paymentMethod === 'ESEWA') {
-        try {
-          const esewaForm = await fetchApi('/payments/esewa/initiate', {
-            method: 'POST',
-            body: JSON.stringify({ bookingId: bookingResult.id }),
-          });
+        const esewaForm = await fetchApi('/payments/esewa/initiate', {
+          method: 'POST',
+          body: JSON.stringify({ bookingId: bookingResult.id }),
+        });
 
-          const form = document.createElement('form');
-          form.setAttribute('method', 'POST');
-          form.setAttribute('action', esewaForm.url);
+        const form = document.createElement('form');
+        form.setAttribute('method', 'POST');
+        form.setAttribute('action', esewaForm.url);
 
-          Object.entries(esewaForm.fields).forEach(([key, val]: any) => {
-            const input = document.createElement('input');
-            input.setAttribute('type', 'hidden');
-            input.setAttribute('name', key);
-            input.setAttribute('value', val);
-            form.appendChild(input);
-          });
+        Object.entries(esewaForm.fields).forEach(([key, val]: any) => {
+          const input = document.createElement('input');
+          input.setAttribute('type', 'hidden');
+          input.setAttribute('name', key);
+          input.setAttribute('value', val);
+          form.appendChild(input);
+        });
 
-          document.body.appendChild(form);
-          form.submit();
-        } catch (err) {
-          console.error('eSewa error: ', err);
-          showToast('eSewa is unavailable right now — your booking is saved as pending payment.', 'error');
-          router.push(`/dashboard/customer?status=success&bookingId=${bookingResult.id}`);
-        }
-      } else if (paymentMethod === 'KHALTI') {
+        document.body.appendChild(form);
+        form.submit();
+      } else {
         const khaltiResponse = await fetchApi('/payments/khalti/initiate', {
           method: 'POST',
           body: JSON.stringify({ bookingId: bookingResult.id }),
         });
         window.location.href = khaltiResponse.payment_url;
-      } else {
-        showToast('Booking confirmed! We\'ll assign a technician shortly.', 'success');
-        router.push(`/dashboard/customer?status=success&bookingId=${bookingResult.id}&msg=cash_confirmed`);
       }
     } catch (err: any) {
       showToast(err.message || 'Could not complete your booking. Please try again.', 'error');
       setSubmitting(false);
+    }
+  };
+
+  const handleClaimPayment = async () => {
+    if (!manualPaymentBooking) return;
+    setClaimingPayment(true);
+    try {
+      await fetchApi('/payments/manual/claim', {
+        method: 'POST',
+        body: JSON.stringify({ bookingId: manualPaymentBooking.id }),
+      });
+      showToast('Thanks! We\'ll confirm your payment shortly.', 'success');
+      router.push(`/dashboard/customer?status=success&bookingId=${manualPaymentBooking.id}`);
+    } catch (err: any) {
+      showToast(err.message || 'Could not submit your payment claim. Please try again.', 'error');
+      setClaimingPayment(false);
     }
   };
 
@@ -370,8 +399,8 @@ export default function BookingPage() {
                 <div className="space-y-3">
                   {[
                     { key: 'CASH', name: 'Cash on Service Completion', desc: 'Pay directly to technician' },
-                    { key: 'ESEWA', name: 'eSewa Digital Wallet', desc: 'Pay instantly via eSewa secure login' },
-                    { key: 'KHALTI', name: 'Khalti Mobile SDK', desc: 'Pay instantly via Khalti secure gateway' },
+                    { key: 'ESEWA', name: 'eSewa', desc: `Send payment to ${MANUAL_PAYMENT_NUMBER} via the eSewa app` },
+                    { key: 'KHALTI', name: 'Khalti', desc: `Send payment to ${MANUAL_PAYMENT_NUMBER} via the Khalti app` },
                   ].map((p) => (
                     <div
                       key={p.key}
@@ -394,6 +423,20 @@ export default function BookingPage() {
                     </div>
                   ))}
                 </div>
+
+                {(paymentMethod === 'ESEWA' || paymentMethod === 'KHALTI') && (
+                  <label className="flex items-start gap-2 text-xs text-slate-500 dark:text-slate-400 pt-1">
+                    <input
+                      type="checkbox"
+                      checked={useSandboxDemo}
+                      onChange={(e) => setUseSandboxDemo(e.target.checked)}
+                      className="mt-0.5 w-3.5 h-3.5"
+                    />
+                    <span>
+                      Use the sandbox payment gateway integration instead (technical demo — test money only, no real payment reaches {MANUAL_PAYMENT_NUMBER})
+                    </span>
+                  </label>
+                )}
               </div>
 
               <div className="flex gap-4 pt-6">
@@ -446,6 +489,51 @@ export default function BookingPage() {
         </div>
 
       </main>
+
+      {manualPaymentBooking && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl max-w-sm w-full space-y-5 shadow-xl text-center">
+            <div className="w-14 h-14 bg-[#328CC1]/10 rounded-2xl flex items-center justify-center mx-auto">
+              <Smartphone size={28} className="text-[#328CC1]" />
+            </div>
+            <div>
+              <h3 className="font-heading font-extrabold text-slate-800 dark:text-slate-100 text-lg">
+                Pay via {paymentMethod === 'KHALTI' ? 'Khalti' : 'eSewa'}
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Open your {paymentMethod === 'KHALTI' ? 'Khalti' : 'eSewa'} app and send the amount below, then confirm here.
+              </p>
+            </div>
+
+            <div className="bg-sky-50 dark:bg-slate-950 rounded-xl p-4 space-y-2">
+              <div className="flex justify-between text-xs font-semibold text-slate-500 dark:text-slate-400">
+                <span>Send to</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-100">{MANUAL_PAYMENT_NUMBER}</span>
+              </div>
+              <div className="flex justify-between text-xs font-semibold text-slate-500 dark:text-slate-400">
+                <span>Amount</span>
+                <span className="font-heading font-black text-base text-[#0B3C5D] dark:text-sky-300">Rs. {manualPaymentBooking.amount}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={handleClaimPayment}
+              disabled={claimingPayment}
+              className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Send size={16} />
+              <span>{claimingPayment ? 'Submitting…' : "I've Sent the Payment"}</span>
+            </button>
+            <button
+              onClick={() => router.push(`/dashboard/customer?status=success&bookingId=${manualPaymentBooking.id}`)}
+              disabled={claimingPayment}
+              className="text-xs text-slate-500 dark:text-slate-400 font-semibold hover:underline disabled:opacity-50"
+            >
+              I'll pay later from my dashboard
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

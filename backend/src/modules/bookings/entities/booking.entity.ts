@@ -23,6 +23,9 @@ export enum BookingStatus {
 
 export enum PaymentStatus {
   PENDING = 'PENDING',
+  // Customer claims they sent a manual eSewa/Khalti transfer; awaiting an
+  // admin to confirm the money actually arrived before marking PAID.
+  PENDING_VERIFICATION = 'PENDING_VERIFICATION',
   PAID = 'PAID',
   FAILED = 'FAILED',
   REFUNDED = 'REFUNDED',

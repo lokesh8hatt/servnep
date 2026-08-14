@@ -15,6 +15,10 @@ export default () => {
   return {
     port: parseInt(process.env.PORT, 10) || 5000,
     nodeEnv: process.env.NODE_ENV || 'development',
+    // Used to build payment gateway redirect URLs (eSewa success_url,
+    // Khalti return_url) — must be the real frontend origin so the browser
+    // lands back on the actual deployed site, not localhost.
+    frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
     database: {
       url: process.env.DATABASE_URL || undefined,
       host: process.env.DATABASE_HOST || 'localhost',
@@ -33,13 +37,21 @@ export default () => {
       refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
     },
     esewa: {
+      // EPAYTEST / 8g8D8h8H8a8s8d8 are eSewa's own published shared UAT
+      // (sandbox) test credentials — safe to use as defaults since they're
+      // meant for exactly this, unlike a real merchant secret.
       merchantCode: process.env.ESEWA_MERCHANT_CODE || 'EPAYTEST',
       secretKey: process.env.ESEWA_SECRET_KEY || '8g8D8h8H8a8s8d8',
-      url: process.env.ESEWA_URL || 'https://uat.esewa.com.np/api/epay/main/v2/form',
+      url: process.env.ESEWA_URL || 'https://rc-epay.esewa.com.np/api/epay/main/v2/form',
+      statusCheckUrl: process.env.ESEWA_STATUS_URL || 'https://rc.esewa.com.np/api/epay/transaction/status/',
     },
     khalti: {
-      secretKey: process.env.KHALTI_SECRET_KEY || 'Key 1234567890abcdef1234567890abcdef',
-      url: process.env.KHALTI_URL || 'https://a.khalti.com/api/v2/epayment/initiate/',
+      // Unlike eSewa, Khalti has no shared public test key — sandbox testing
+      // requires signing up at https://test-admin.khalti.com for your own
+      // test secret key. Left unset by default; initiateKhaltiPayment throws
+      // a clear error rather than pretending to work without one.
+      secretKey: process.env.KHALTI_SECRET_KEY || '',
+      baseUrl: process.env.KHALTI_BASE_URL || 'https://dev.khalti.com/api/v2',
     },
     sms: {
       aakashToken: process.env.AAKASH_SMS_TOKEN || 'aakash-test-token',

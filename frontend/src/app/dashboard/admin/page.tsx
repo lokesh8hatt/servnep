@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { fetchApi } from '@/lib/api';
 import { AuthGuard } from '@/context/AuthGuard';
 import { useAuth } from '@/context/AuthContext';
-import { TrendingUp, Users, ShoppingBag, CheckCircle, Clock, Send, RefreshCw, LogOut, Shield } from 'lucide-react';
+import { TrendingUp, Users, ShoppingBag, CheckCircle, Clock, Send, RefreshCw, LogOut, Shield, Check, X } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SoundToggle } from '@/components/SoundToggle';
 import { useToast } from '@/context/ToastContext';
@@ -51,6 +51,19 @@ export default function AdminDashboard() {
       loadData();
     } catch (err: any) {
       showToast(err.message || 'Could not dispatch a technician. Please try again.', 'error');
+    }
+  };
+
+  const handleVerifyPayment = async (bookingId: string, approved: boolean) => {
+    try {
+      await fetchApi(`/payments/manual/${bookingId}/verify`, {
+        method: 'PATCH',
+        body: JSON.stringify({ approved }),
+      });
+      showToast(approved ? 'Payment confirmed as received.' : 'Payment claim rejected.', approved ? 'success' : 'info');
+      loadData();
+    } catch (err: any) {
+      showToast(err.message || 'Could not update payment status. Please try again.', 'error');
     }
   };
 
@@ -198,12 +211,37 @@ export default function AdminDashboard() {
                           )}
                         </td>
                         <td className="py-4 pr-4">
-                          <span className={`font-bold text-xs ${
-                            b.paymentStatus === 'PAID' ? 'text-emerald-600' : 'text-amber-600'
-                          }`}>
-                            {b.paymentStatus}
-                          </span>
-                          <span className="text-slate-400 dark:text-slate-500"> ({b.paymentMethod})</span>
+                          <div>
+                            <span className={`font-bold text-xs ${
+                              b.paymentStatus === 'PAID' ? 'text-emerald-600'
+                              : b.paymentStatus === 'PENDING_VERIFICATION' ? 'text-blue-600'
+                              : b.paymentStatus === 'FAILED' ? 'text-red-600'
+                              : 'text-amber-600'
+                            }`}>
+                              {b.paymentStatus}
+                            </span>
+                            <span className="text-slate-400 dark:text-slate-500"> ({b.paymentMethod})</span>
+                          </div>
+                          {b.paymentStatus === 'PENDING_VERIFICATION' && (
+                            <div className="flex gap-1.5 mt-1.5">
+                              <button
+                                onClick={() => handleVerifyPayment(b.id, true)}
+                                title="Confirm payment received"
+                                aria-label="Confirm payment received"
+                                className="p-1 rounded-md bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
+                              >
+                                <Check size={12} />
+                              </button>
+                              <button
+                                onClick={() => handleVerifyPayment(b.id, false)}
+                                title="Reject payment claim"
+                                aria-label="Reject payment claim"
+                                className="p-1 rounded-md bg-red-500/10 text-red-600 hover:bg-red-500/20"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          )}
                         </td>
                         <td className="py-4 text-right">
                           {!b.technicianId && (

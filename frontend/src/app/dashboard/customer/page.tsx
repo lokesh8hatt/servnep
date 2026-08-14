@@ -5,10 +5,28 @@ import Link from 'next/link';
 import { fetchApi, fetchApiBlob } from '@/lib/api';
 import { AuthGuard } from '@/context/AuthGuard';
 import { useAuth } from '@/context/AuthContext';
-import { User, MapPin, Download, Award, RefreshCw, Star, LogOut, ShoppingBag } from 'lucide-react';
+import { User, MapPin, Download, Award, RefreshCw, Star, LogOut, ShoppingBag, Send } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SoundToggle } from '@/components/SoundToggle';
 import { useToast } from '@/context/ToastContext';
+
+const MANUAL_PAYMENT_NUMBER = '9868918609';
+
+const PAYMENT_STATUS_STYLES: Record<string, string> = {
+  PENDING: 'text-amber-600 dark:text-amber-400',
+  PENDING_VERIFICATION: 'text-blue-600 dark:text-blue-400',
+  PAID: 'text-emerald-600 dark:text-emerald-400',
+  FAILED: 'text-red-600 dark:text-red-400',
+  REFUNDED: 'text-slate-500 dark:text-slate-400',
+};
+
+const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  PENDING: 'Not Paid Yet',
+  PENDING_VERIFICATION: 'Verifying Payment',
+  PAID: 'Paid',
+  FAILED: 'Payment Failed',
+  REFUNDED: 'Refunded',
+};
 
 export default function CustomerDashboard() {
   const { user, logout } = useAuth();
@@ -19,6 +37,7 @@ export default function CustomerDashboard() {
   const [selectedBookingId, setSelectedBookingId] = useState('');
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
+  const [claimingBookingId, setClaimingBookingId] = useState('');
 
   const loadData = async () => {
     try {
@@ -71,6 +90,22 @@ export default function CustomerDashboard() {
       loadData();
     } catch (err: any) {
       showToast(err.message || 'Could not submit your review. Please try again.', 'error');
+    }
+  };
+
+  const handleClaimPayment = async (bookingId: string) => {
+    setClaimingBookingId(bookingId);
+    try {
+      await fetchApi('/payments/manual/claim', {
+        method: 'POST',
+        body: JSON.stringify({ bookingId }),
+      });
+      showToast('Thanks! We\'ll confirm your payment shortly.', 'success');
+      loadData();
+    } catch (err: any) {
+      showToast(err.message || 'Could not submit your payment claim. Please try again.', 'error');
+    } finally {
+      setClaimingBookingId('');
     }
   };
 
@@ -196,13 +231,31 @@ export default function CustomerDashboard() {
                       </div>
                       <div>
                         <p className="text-xs text-slate-400 dark:text-slate-500 uppercase">Payment</p>
-                        <p className="text-slate-800 dark:text-slate-100 font-bold mt-0.5">{booking.paymentStatus}</p>
+                        <p className={`font-bold mt-0.5 ${PAYMENT_STATUS_STYLES[booking.paymentStatus] || 'text-slate-800 dark:text-slate-100'}`}>
+                          {PAYMENT_STATUS_LABELS[booking.paymentStatus] || booking.paymentStatus}
+                        </p>
                       </div>
                       <div>
                         <p className="text-xs text-slate-400 dark:text-slate-500 uppercase">Amount</p>
                         <p className="text-slate-800 dark:text-slate-100 font-bold mt-0.5">Rs. {booking.totalAmount}</p>
                       </div>
                     </div>
+
+                    {booking.paymentMethod !== 'CASH' && booking.paymentStatus === 'PENDING' && (
+                      <div className="bg-sky-50 dark:bg-slate-950 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                        <span className="text-slate-600 dark:text-slate-300 font-semibold">
+                          Send Rs. {booking.totalAmount} to <span className="font-mono font-bold text-slate-800 dark:text-slate-100">{MANUAL_PAYMENT_NUMBER}</span> via {booking.paymentMethod === 'KHALTI' ? 'Khalti' : 'eSewa'}
+                        </span>
+                        <button
+                          onClick={() => handleClaimPayment(booking.id)}
+                          disabled={claimingBookingId === booking.id}
+                          className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1 justify-center disabled:opacity-50"
+                        >
+                          <Send size={11} />
+                          {claimingBookingId === booking.id ? 'Submitting…' : "I've Sent It"}
+                        </button>
+                      </div>
+                    )}
 
                     <div className="flex gap-3 justify-end text-xs font-bold pt-1">
                       {booking.status === 'COMPLETED' && (
