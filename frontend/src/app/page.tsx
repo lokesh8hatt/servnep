@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import {
   Droplet, Zap, Tv, Sparkles, PaintRoller, Shield, Clock, ShieldCheck,
   Star, Award, PhoneCall,
-  Search, ArrowRight, UserCheck, LogIn
+  Search, ArrowRight, UserCheck, LogIn, Menu, X
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { fetchApi } from '@/lib/api';
@@ -22,6 +22,13 @@ const CATEGORY_META: Record<string, { icon: React.ElementType; desc: string }> =
 };
 
 const CITIES = ['Kathmandu', 'Lalitpur', 'Bhaktapur'];
+
+const NAV_LINKS = [
+  { href: '#services', label: 'Services' },
+  { href: '#how-it-works', label: 'How It Works' },
+  { href: '#why-servenep', label: 'Why ServeNep' },
+  { href: '#reviews', label: 'Reviews' },
+];
 
 interface CatalogItem {
   id: string;
@@ -42,6 +49,7 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [selectedCity, setSelectedCity] = useState('Kathmandu');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [catalog, setCatalog] = useState<CatalogService[]>([]);
   const { user, isAuthenticated } = useAuth();
   const searchBoxRef = useRef<HTMLDivElement>(null);
@@ -121,9 +129,11 @@ export default function HomePage() {
         </div>
 
         <nav className="hidden md:flex items-center gap-6 text-sm font-semibold text-slate-600 dark:text-slate-300">
-          <Link href="#services" className="hover:text-[#0B3C5D] dark:text-sky-300 transition-colors">Services</Link>
-          <Link href="#how-it-works" className="hover:text-[#0B3C5D] dark:text-sky-300 transition-colors">How It Works</Link>
-          <Link href="#reviews" className="hover:text-[#0B3C5D] dark:text-sky-300 transition-colors">Testimonials</Link>
+          {NAV_LINKS.map((link) => (
+            <Link key={link.href} href={link.href} className="hover:text-[#0B3C5D] dark:text-sky-300 transition-colors">
+              {link.label}
+            </Link>
+          ))}
         </nav>
 
         <div className="flex items-center gap-1.5 sm:gap-3">
@@ -162,7 +172,32 @@ export default function HomePage() {
               <span className="hidden sm:inline">Login</span>
             </Link>
           )}
+
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen((v) => !v)}
+            aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={mobileMenuOpen}
+            className="md:hidden p-1.5 sm:p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shrink-0"
+          >
+            {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
         </div>
+
+        {mobileMenuOpen && (
+          <nav className="md:hidden w-full order-3 flex flex-col gap-1 pt-2 mt-1 border-t border-slate-100 dark:border-slate-800">
+            {NAV_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={() => setMobileMenuOpen(false)}
+                className="py-2.5 px-2 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+        )}
       </header>
 
       {/* Hero Section */}
@@ -239,7 +274,15 @@ export default function HomePage() {
       </section>
 
       {/* Trust Badging */}
-      <section className="bg-white dark:bg-slate-900 border-y border-slate-100 dark:border-slate-800 py-8 px-6">
+      <section id="why-servenep" className="scroll-mt-20 bg-white dark:bg-slate-900 border-y border-slate-100 dark:border-slate-800 py-12 px-6">
+        <div className="text-center mb-10">
+          <h2 className="font-heading text-2xl md:text-3xl font-black text-[#0B3C5D] dark:text-sky-300 mb-3">
+            Why Choose ServeNep?
+          </h2>
+          <p className="text-slate-500 dark:text-slate-400 max-w-xl mx-auto text-sm">
+            Background-checked professionals, upfront pricing, and a warranty on every job — built for the Kathmandu Valley.
+          </p>
+        </div>
         <div className="max-w-6xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
           <div className="flex flex-col items-center">
             <div className="w-12 h-12 bg-slate-50 dark:bg-slate-950 text-[#0B3C5D] dark:text-sky-300 rounded-full flex items-center justify-center mb-3">
@@ -273,7 +316,7 @@ export default function HomePage() {
       </section>
 
       {/* Service Categories Grid */}
-      <section id="services" className="py-20 px-6 max-w-6xl mx-auto">
+      <section id="services" className="scroll-mt-20 py-20 px-6 max-w-6xl mx-auto">
         <div className="text-center mb-16">
           <h2 className="font-heading text-3xl md:text-4xl font-black text-[#0B3C5D] dark:text-sky-300 mb-4">
             Popular Service Offerings
@@ -305,7 +348,7 @@ export default function HomePage() {
       </section>
 
       {/* How it Works */}
-      <section id="how-it-works" className="bg-slate-900 text-white py-20 px-6">
+      <section id="how-it-works" className="scroll-mt-20 bg-slate-900 text-white py-20 px-6">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="font-heading text-3xl md:text-4xl font-black mb-4">
@@ -334,7 +377,7 @@ export default function HomePage() {
       </section>
 
       {/* Testimonials */}
-      <section id="reviews" className="py-20 px-6 max-w-6xl mx-auto">
+      <section id="reviews" className="scroll-mt-20 py-20 px-6 max-w-6xl mx-auto">
         <div className="text-center mb-16">
           <h2 className="font-heading text-3xl md:text-4xl font-black text-[#0B3C5D] dark:text-sky-300 mb-4">
             Loved by Customers in Kathmandu Valley
