@@ -20,13 +20,21 @@ export const DEMO_CUSTOMER_ID = '00000000-0000-4000-8000-000000000001';
 export const DEMO_TECHNICIAN_ID = '00000000-0000-4000-8000-000000000002';
 export const DEMO_ADMIN_ID = '00000000-0000-4000-8000-000000000003';
 
+// Supports either a single DATABASE_URL (Neon, Render, Railway, ...) or the
+// discrete DATABASE_HOST/PORT/... fields used for local development.
+const connectionOptions = process.env.DATABASE_URL
+  ? { url: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } }
+  : {
+      host: process.env.DATABASE_HOST || 'localhost',
+      port: parseInt(process.env.DATABASE_PORT as string, 10) || 5432,
+      username: process.env.DATABASE_USERNAME || 'postgres',
+      password: process.env.DATABASE_PASSWORD || 'postgres',
+      database: process.env.DATABASE_NAME || 'servenep',
+    };
+
 const dataSource = new DataSource({
   type: 'postgres',
-  host: process.env.DATABASE_HOST || 'localhost',
-  port: parseInt(process.env.DATABASE_PORT as string, 10) || 5432,
-  username: process.env.DATABASE_USERNAME || 'postgres',
-  password: process.env.DATABASE_PASSWORD || 'postgres',
-  database: process.env.DATABASE_NAME || 'servenep',
+  ...connectionOptions,
   entities: [User, TechnicianProfile, Address, Service, ServiceCategory, ServiceItem, Booking, Payment, Review],
   namingStrategy: new SnakeNamingStrategy(),
   synchronize: true,

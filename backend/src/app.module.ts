@@ -19,21 +19,32 @@ import { SnakeNamingStrategy } from './database/snake-naming.strategy';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        host: config.get<string>('database.host'),
-        port: config.get<number>('database.port'),
-        username: config.get<string>('database.username'),
-        password: config.get<string>('database.password'),
-        database: config.get<string>('database.database'),
-        autoLoadEntities: true,
-        namingStrategy: new SnakeNamingStrategy(),
-        synchronize: process.env.NODE_ENV !== 'production',
-        logging: process.env.NODE_ENV !== 'production' ? ['error', 'warn'] : ['error'],
-        retryAttempts: 3,
-        retryDelay: 3000,
-        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-      }),
+      useFactory: (config: ConfigService) => {
+        const url = config.get<string>('database.url');
+        const connectionOptions = url
+          ? { url }
+          : {
+              host: config.get<string>('database.host'),
+              port: config.get<number>('database.port'),
+              username: config.get<string>('database.username'),
+              password: config.get<string>('database.password'),
+              database: config.get<string>('database.database'),
+            };
+        return {
+          type: 'postgres' as const,
+          ...connectionOptions,
+          autoLoadEntities: true,
+          namingStrategy: new SnakeNamingStrategy(),
+          synchronize: config.get<boolean>('database.synchronize'),
+          logging: process.env.NODE_ENV !== 'production' ? ['error', 'warn'] : ['error'],
+          retryAttempts: 3,
+          retryDelay: 3000,
+          // Managed Postgres providers terminate TLS with certs not in
+          // Node's default trust store — rejectUnauthorized:false accepts
+          // that without disabling encryption itself.
+          ssl: process.env.NODE_ENV === 'production' || !!url ? { rejectUnauthorized: false } : false,
+        };
+      },
     }),
     ServicesModule,
     AuthModule,

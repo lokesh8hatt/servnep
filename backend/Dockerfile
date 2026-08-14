@@ -13,4 +13,4 @@ COPY package*.json ./
 RUN npm ci --only=production --legacy-peer-deps
 COPY --from=builder /app/dist ./dist
 EXPOSE 5000
-CMD ["node", "dist/src/main"]
+CMD ["node", "dist/main"]

@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: servenep-backend
+    runtime: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/services
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      # Set these two manually in the Render dashboard after the first deploy:
+      #   DATABASE_URL  -> the Neon connection string (Dashboard > Connect)
+      #   CORS_ORIGIN   -> your Vercel frontend URL, e.g. https://servenep.vercel.app
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: DB_SYNCHRONIZE
+        value: "true"

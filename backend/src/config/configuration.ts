@@ -1,14 +1,14 @@
 export default () => {
   // Fail fast in production if critical env vars are missing
   if (process.env.NODE_ENV === 'production') {
-    const requiredVars = [
-      { name: 'JWT_SECRET', value: process.env.JWT_SECRET },
-      { name: 'DATABASE_PASSWORD', value: process.env.DATABASE_PASSWORD },
-    ];
-    for (const v of requiredVars) {
-      if (!v.value) {
-        throw new Error(`FATAL: ${v.name} environment variable is required in production`);
-      }
+    if (!process.env.JWT_SECRET) {
+      throw new Error('FATAL: JWT_SECRET environment variable is required in production');
+    }
+    // Managed Postgres hosts (Neon, Render, Railway, ...) hand out one
+    // connection string rather than separate host/port/user/pass fields —
+    // either form is accepted, but one of them must be set.
+    if (!process.env.DATABASE_URL && !process.env.DATABASE_PASSWORD) {
+      throw new Error('FATAL: DATABASE_URL or DATABASE_PASSWORD environment variable is required in production');
     }
   }
 
@@ -16,11 +16,16 @@ export default () => {
     port: parseInt(process.env.PORT, 10) || 5000,
     nodeEnv: process.env.NODE_ENV || 'development',
     database: {
+      url: process.env.DATABASE_URL || undefined,
       host: process.env.DATABASE_HOST || 'localhost',
       port: parseInt(process.env.DATABASE_PORT, 10) || 5432,
       username: process.env.DATABASE_USERNAME || 'postgres',
       password: process.env.DATABASE_PASSWORD || (process.env.NODE_ENV === 'production' ? '' : 'postgres'),
       database: process.env.DATABASE_NAME || 'servenep',
+      // No migration system exists yet, so schema sync stays on by default
+      // even in production — set DB_SYNCHRONIZE=false once the schema is
+      // stable and you don't want TypeORM altering tables on every deploy.
+      synchronize: process.env.DB_SYNCHRONIZE ? process.env.DB_SYNCHRONIZE === 'true' : true,
     },
     jwt: {
       secret: process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'servenep-super-secret-jwt-key'),
