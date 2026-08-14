@@ -21,3 +21,8 @@ services:
         sync: false
       - key: DB_SYNCHRONIZE
         value: "true"
+      # true = this deploy is a public demo with no real SMS gateway, so the
+      # one-click demo login and visible OTP stay enabled despite NODE_ENV=
+      # production. Set to "false" (or remove) for a deployment with real users.
+      - key: DEMO_MODE
+        value: "true"

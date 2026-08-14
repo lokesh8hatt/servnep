@@ -36,6 +36,8 @@ All three offer "Continue with GitHub" sign-up, so use the same GitHub account y
 
 `DB_SYNCHRONIZE=true` is set in the blueprint, so the database schema (all tables) gets created automatically on first boot — no manual migration step needed.
 
+`DEMO_MODE=true` is also set in the blueprint. Without it, the login page's one-click demo buttons return a 403 in production (they're hardcoded off unless explicitly re-enabled) — this deployment has no real SMS gateway, so that's the only way to log in at all. Leave it out entirely if you ever deploy this for real users instead of a demo.
+
 ## 3. Seed the database
 
 Run this from your own machine, pointed at the live Neon database (nothing here touches Render or Vercel):
