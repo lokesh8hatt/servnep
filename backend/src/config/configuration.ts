@@ -41,7 +41,7 @@ export default () => {
       // (sandbox) test credentials — safe to use as defaults since they're
       // meant for exactly this, unlike a real merchant secret.
       merchantCode: process.env.ESEWA_MERCHANT_CODE || 'EPAYTEST',
-      secretKey: process.env.ESEWA_SECRET_KEY || '8g8D8h8H8a8s8d8',
+      secretKey: process.env.ESEWA_SECRET_KEY || '8gBm/:&EnhH.1/q',
       url: process.env.ESEWA_URL || 'https://rc-epay.esewa.com.np/api/epay/main/v2/form',
       statusCheckUrl: process.env.ESEWA_STATUS_URL || 'https://rc.esewa.com.np/api/epay/transaction/status/',
     },

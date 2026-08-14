@@ -82,12 +82,17 @@ export class PaymentsService {
   async initiateEsewaPayment(bookingId: string) {
     const booking = await this.bookingsService.findById(bookingId);
 
-    const merchantCode = this.configService.get<string>('esewa.merchantCode') || 'EPAYTEST';
-    const secretKey = this.configService.get<string>('esewa.secretKey') || '8g8D8h8H8a8s8d8';
+    // No local fallback here on purpose — configuration.ts is the one place
+    // this default lives. A second hardcoded copy here previously drifted
+    // out of sync with it silently, and the stale one kept winning.
+    const merchantCode = this.configService.get<string>('esewa.merchantCode');
+    const secretKey = this.configService.get<string>('esewa.secretKey');
     const esewaUrl = this.configService.get<string>('esewa.url');
     const frontendUrl = this.configService.get<string>('frontendUrl');
 
-    const transactionUuid = `tx-${bookingId}-${Date.now()}`;
+    // Hyphens are valid per eSewa's spec, but keeping the ID plain
+    // alphanumeric removes any ambiguity while their sandbox is this flaky.
+    const transactionUuid = `tx${bookingId.replace(/-/g, '')}${Date.now()}`;
     const productCode = merchantCode;
 
     // eSewa's mandated field order for the signature — must match
