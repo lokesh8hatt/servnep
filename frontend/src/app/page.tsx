@@ -109,14 +109,14 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col">
       {/* Main Navbar */}
-      <header className="sticky top-0 z-50 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 px-6 py-4 flex items-center justify-between shadow-xs dark:shadow-none">
+      <header className="sticky top-0 z-50 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 px-3 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-y-2 shadow-xs dark:shadow-none">
         <div className="flex items-center gap-2">
-          <div className="bg-[#0B3C5D] text-white p-2 rounded-xl">
+          <div className="bg-[#0B3C5D] text-white p-2 rounded-xl shrink-0">
             <span className="font-heading font-black text-xl tracking-wider">SN</span>
           </div>
           <div>
             <h1 className="font-heading font-extrabold text-lg text-[#0B3C5D] dark:text-sky-300 tracking-tight">ServeNep</h1>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-semibold">Home Marketplace</p>
+            <p className="hidden sm:block text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-semibold">Home Marketplace</p>
           </div>
         </div>
 
@@ -126,15 +126,15 @@ export default function HomePage() {
           <Link href="#reviews" className="hover:text-[#0B3C5D] dark:text-sky-300 transition-colors">Testimonials</Link>
         </nav>
 
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-sm bg-slate-100 dark:bg-slate-800 border px-3 py-1.5 rounded-xl text-slate-700 dark:text-slate-200">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-            <select 
-              value={selectedCity} 
+        <div className="flex items-center gap-1.5 sm:gap-3">
+          <div className="flex items-center gap-1 sm:gap-1.5 text-xs sm:text-sm bg-slate-100 dark:bg-slate-800 border px-2 sm:px-3.5 py-1 sm:py-1.5 rounded-xl text-slate-700 dark:text-slate-200">
+            <span className="hidden sm:inline-block w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0"></span>
+            <select
+              value={selectedCity}
               onChange={(e) => setSelectedCity(e.target.value)}
               title="Select your city"
               aria-label="Select your city"
-              className="bg-transparent font-semibold focus:outline-hidden cursor-pointer"
+              className="bg-transparent font-semibold focus:outline-hidden cursor-pointer max-w-[6rem] sm:max-w-none"
             >
               {CITIES.map((c) => (
                 <option key={c} value={c}>{c}</option>
@@ -151,7 +151,7 @@ export default function HomePage() {
               className="btn-primary flex items-center gap-2 text-sm"
             >
               <UserCheck size={16} />
-              <span>Dashboard</span>
+              <span className="hidden sm:inline">Dashboard</span>
             </Link>
           ) : (
             <Link
@@ -159,14 +159,14 @@ export default function HomePage() {
               className="btn-primary flex items-center gap-2 text-sm"
             >
               <LogIn size={16} />
-              <span>Login</span>
+              <span className="hidden sm:inline">Login</span>
             </Link>
           )}
         </div>
       </header>
 
       {/* Hero Section */}
-      <section className="relative gradient-hero text-white py-24 px-6 md:px-12 flex flex-col items-center text-center overflow-hidden">
+      <section className="relative gradient-hero text-white py-14 sm:py-20 md:py-24 px-4 sm:px-6 md:px-12 flex flex-col items-center text-center overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-white via-primary to-transparent pointer-events-none"></div>
 
         <span className="bg-white/10 dark:bg-white/5 text-white border border-white/20 px-3.5 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider mb-6">
@@ -228,7 +228,7 @@ export default function HomePage() {
           )}
         </div>
 
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-3 text-sm text-center px-2">
           <span className="text-red-400 animate-pulse font-bold flex items-center gap-1">
             <PhoneCall size={14} /> Emergency booking needed?
           </span>

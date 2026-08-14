@@ -91,24 +91,24 @@ export default function CustomerDashboard() {
   return (
     <AuthGuard requiredRole="CUSTOMER">
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
-        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-6 py-4 flex items-center justify-between shadow-xs dark:shadow-none">
+        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-3 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-y-2 shadow-xs dark:shadow-none">
           <Link href="/" className="flex items-center gap-2">
             <div className="bg-[#0B3C5D] text-white p-2 rounded-lg text-xs font-black">SN</div>
             <span className="font-heading font-extrabold text-lg text-[#0B3C5D] dark:text-sky-300">ServeNep</span>
           </Link>
-          <div className="flex items-center gap-3">
-            <span className="bg-[#328CC1]/15 text-[#328CC1] px-3.5 py-1 rounded-full text-xs font-bold">
+          <div className="flex items-center gap-1.5 sm:gap-3">
+            <span className="bg-[#328CC1]/15 text-[#328CC1] px-2 sm:px-3.5 py-1 rounded-full text-[10px] sm:text-xs font-bold whitespace-nowrap">
               Customer Portal
             </span>
             <ThemeToggle />
             <SoundToggle />
-            <button onClick={handleLogout} title="Logout" aria-label="Logout" className="p-2 hover:bg-slate-100 dark:bg-slate-800 rounded-xl transition-colors text-slate-400 dark:text-slate-500 hover:text-red-500">
+            <button onClick={handleLogout} title="Logout" aria-label="Logout" className="p-1.5 sm:p-2 hover:bg-slate-100 dark:bg-slate-800 rounded-xl transition-colors text-slate-400 dark:text-slate-500 hover:text-red-500 shrink-0">
               <LogOut size={18} />
             </button>
           </div>
         </header>
 
-        <main className="flex-1 max-w-6xl w-full mx-auto p-6 md:p-12 grid grid-cols-1 md:grid-cols-3 gap-8">
+        <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 md:p-12 grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
           
           {/* Left Sidebar - Profile */}
           <div className="space-y-6">

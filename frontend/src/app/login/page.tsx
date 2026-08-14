@@ -151,22 +151,22 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col">
       {/* Header */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-6 py-4 flex items-center justify-between">
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
           <div className="bg-[#0B3C5D] text-white p-2 rounded-lg text-xs font-black">SN</div>
           <span className="font-heading font-extrabold text-lg text-[#0B3C5D] dark:text-sky-300">ServeNep</span>
         </Link>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Secure Login</span>
+        <div className="flex items-center gap-1.5 sm:gap-3">
+          <span className="hidden sm:inline text-xs text-slate-500 dark:text-slate-400 font-medium">Secure Login</span>
           <ThemeToggle />
           <SoundToggle />
         </div>
       </header>
 
       {/* Login Form */}
-      <main className="flex-1 flex items-center justify-center p-6">
+      <main className="flex-1 flex items-center justify-center p-4 sm:p-6">
         <div className="w-full max-w-md">
-          <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg space-y-8">
+          <div className="bg-white dark:bg-slate-900 p-5 sm:p-8 rounded-3xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg space-y-8">
             {/* Icon & Title */}
             <div className="text-center space-y-3">
               <div className="w-16 h-16 bg-[#0B3C5D]/5 rounded-2xl flex items-center justify-center mx-auto">

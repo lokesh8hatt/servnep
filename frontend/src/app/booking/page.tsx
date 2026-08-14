@@ -182,14 +182,14 @@ export default function BookingPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-6 py-4 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="bg-[#0B3C5D] text-white p-2 rounded-lg text-xs font-black">SN</div>
-          <span className="font-heading font-extrabold text-lg text-[#0B3C5D] dark:text-sky-300">ServeNep Booking</span>
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-2">
+        <Link href="/" className="flex items-center gap-2 min-w-0">
+          <div className="bg-[#0B3C5D] text-white p-2 rounded-lg text-xs font-black shrink-0">SN</div>
+          <span className="font-heading font-extrabold text-lg text-[#0B3C5D] dark:text-sky-300 truncate">ServeNep Booking</span>
         </Link>
-        <div className="flex items-center gap-3">
-          <div className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
-            Step {step} of 3
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+          <div className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider whitespace-nowrap">
+            Step {step}/3
           </div>
           <ThemeToggle />
           <SoundToggle />
@@ -202,12 +202,12 @@ export default function BookingPage() {
         }`}></div>
       </div>
 
-      <main className="flex-1 max-w-4xl w-full mx-auto p-6 md:p-12 grid grid-cols-1 md:grid-cols-3 gap-8">
+      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 md:p-12 grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
         
         <div className="md:col-span-2 space-y-6">
           
           {step === 1 && (
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none space-y-6">
+            <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none space-y-6">
               <h2 className="font-heading text-xl font-extrabold text-[#0B3C5D] dark:text-sky-300 flex items-center gap-2">
                 <ShoppingBag size={20} className="text-[#328CC1]" />
                 <span>Select Service Item</span>
@@ -275,7 +275,7 @@ export default function BookingPage() {
           )}
 
           {step === 2 && (
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none space-y-6">
+            <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none space-y-6">
               <h2 className="font-heading text-xl font-extrabold text-[#0B3C5D] dark:text-sky-300 flex items-center gap-2">
                 <MapPin size={20} className="text-[#328CC1]" />
                 <span>Service Address & Schedule</span>
@@ -283,12 +283,12 @@ export default function BookingPage() {
 
               <div className="space-y-4">
                 <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Service City</label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
                   {['Kathmandu', 'Lalitpur', 'Bhaktapur'].map((c) => (
                     <button
                       key={c}
                       onClick={() => setCity(c)}
-                      className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all ${
+                      className={`py-2 px-1.5 sm:px-3 rounded-lg border text-[11px] sm:text-xs font-bold transition-all ${
                         city === c
                           ? 'border-[#328CC1] bg-[#328CC1]/5 text-[#328CC1]'
                           : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:bg-slate-950'
@@ -364,7 +364,7 @@ export default function BookingPage() {
           )}
 
           {step === 3 && (
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none space-y-6">
+            <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none space-y-6">
               <h2 className="font-heading text-xl font-extrabold text-[#0B3C5D] dark:text-sky-300 flex items-center gap-2">
                 <CreditCard size={20} className="text-[#328CC1]" />
                 <span>Confirm & Pay</span>
@@ -413,7 +413,7 @@ export default function BookingPage() {
         </div>
 
         <div className="space-y-6">
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none space-y-6">
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none space-y-6">
             <h3 className="font-heading font-extrabold text-sm text-slate-800 dark:text-slate-100 uppercase tracking-wider">
               Booking Invoice
             </h3>
