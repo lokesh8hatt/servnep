@@ -115,7 +115,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col">
+    <div className="min-h-screen bg-sky-50 dark:bg-slate-950 flex flex-col">
       {/* Main Navbar */}
       <header className="sticky top-0 z-50 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 px-3 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-y-2 shadow-xs dark:shadow-none">
         <div className="flex items-center gap-2">
@@ -178,7 +178,7 @@ export default function HomePage() {
             onClick={() => setMobileMenuOpen((v) => !v)}
             aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
             aria-expanded={mobileMenuOpen}
-            className="md:hidden p-1.5 sm:p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shrink-0"
+            className="md:hidden p-1.5 sm:p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-slate-800 transition-colors shrink-0"
           >
             {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
@@ -191,7 +191,7 @@ export default function HomePage() {
                 key={link.href}
                 href={link.href}
                 onClick={() => setMobileMenuOpen(false)}
-                className="py-2.5 px-2 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                className="py-2.5 px-2 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-sky-50 dark:hover:bg-slate-800 transition-colors"
               >
                 {link.label}
               </Link>
@@ -245,7 +245,7 @@ export default function HomePage() {
                     key={r.itemId}
                     href={`/booking?item=${r.itemId}&city=${selectedCity}`}
                     onClick={() => setShowSearchResults(false)}
-                    className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-0"
+                    className="flex items-center justify-between px-4 py-3 hover:bg-sky-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-0"
                   >
                     <div>
                       <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{r.itemName}</p>
@@ -285,28 +285,28 @@ export default function HomePage() {
         </div>
         <div className="max-w-6xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
           <div className="flex flex-col items-center">
-            <div className="w-12 h-12 bg-slate-50 dark:bg-slate-950 text-[#0B3C5D] dark:text-sky-300 rounded-full flex items-center justify-center mb-3">
+            <div className="w-12 h-12 bg-sky-50 dark:bg-slate-950 text-[#0B3C5D] dark:text-sky-300 rounded-full flex items-center justify-center mb-3">
               <ShieldCheck size={24} />
             </div>
             <h4 className="font-heading font-bold text-sm text-slate-800 dark:text-slate-100">Verified Pros</h4>
             <p className="text-xs text-slate-500 dark:text-slate-400">100% background checked</p>
           </div>
           <div className="flex flex-col items-center">
-            <div className="w-12 h-12 bg-slate-50 dark:bg-slate-950 text-[#0B3C5D] dark:text-sky-300 rounded-full flex items-center justify-center mb-3">
+            <div className="w-12 h-12 bg-sky-50 dark:bg-slate-950 text-[#0B3C5D] dark:text-sky-300 rounded-full flex items-center justify-center mb-3">
               <Award size={24} />
             </div>
             <h4 className="font-heading font-bold text-sm text-slate-800 dark:text-slate-100">Service Warranty</h4>
             <p className="text-xs text-slate-500 dark:text-slate-400">7-Day free callback warranty</p>
           </div>
           <div className="flex flex-col items-center">
-            <div className="w-12 h-12 bg-slate-50 dark:bg-slate-950 text-[#0B3C5D] dark:text-sky-300 rounded-full flex items-center justify-center mb-3">
+            <div className="w-12 h-12 bg-sky-50 dark:bg-slate-950 text-[#0B3C5D] dark:text-sky-300 rounded-full flex items-center justify-center mb-3">
               <Clock size={24} />
             </div>
             <h4 className="font-heading font-bold text-sm text-slate-800 dark:text-slate-100">Quick Response</h4>
             <p className="text-xs text-slate-500 dark:text-slate-400">On-time technician arrival</p>
           </div>
           <div className="flex flex-col items-center">
-            <div className="w-12 h-12 bg-slate-50 dark:bg-slate-950 text-[#0B3C5D] dark:text-sky-300 rounded-full flex items-center justify-center mb-3">
+            <div className="w-12 h-12 bg-sky-50 dark:bg-slate-950 text-[#0B3C5D] dark:text-sky-300 rounded-full flex items-center justify-center mb-3">
               <Shield size={24} />
             </div>
             <h4 className="font-heading font-bold text-sm text-slate-800 dark:text-slate-100">Transparent Pricing</h4>
@@ -333,7 +333,7 @@ export default function HomePage() {
               href={`/booking?service=${cat.slug}&city=${selectedCity}`}
               className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-xs dark:shadow-none hover:shadow-md hover:border-sky-500/40 transition-all group flex flex-col"
             >
-              <div className="w-12 h-12 rounded-xl bg-slate-50 dark:bg-slate-950 text-[#328CC1] group-hover:bg-[#328CC1] group-hover:text-white transition-all flex items-center justify-center mb-6">
+              <div className="w-12 h-12 rounded-xl bg-sky-50 dark:bg-slate-950 text-[#328CC1] group-hover:bg-[#328CC1] group-hover:text-white transition-all flex items-center justify-center mb-6">
                 <cat.icon size={24} />
               </div>
               <h3 className="font-heading font-bold text-slate-800 dark:text-slate-100 text-lg group-hover:text-primary transition-colors mb-1">{cat.name}</h3>

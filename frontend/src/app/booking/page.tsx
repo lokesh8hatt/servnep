@@ -7,12 +7,10 @@ import { fetchApi } from '@/lib/api';
 import { MapPin, Calendar, Clock, CreditCard, ChevronRight, ShoppingBag } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SoundToggle } from '@/components/SoundToggle';
-import { useSound } from '@/context/SoundContext';
 import { useToast } from '@/context/ToastContext';
 
 export default function BookingPage() {
   const router = useRouter();
-  const { play } = useSound();
   const { showToast } = useToast();
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
@@ -142,7 +140,6 @@ export default function BookingPage() {
           form.submit();
         } catch (err) {
           console.error('eSewa error: ', err);
-          play('error');
           showToast('eSewa is unavailable right now — your booking is saved as pending payment.', 'error');
           router.push(`/dashboard/customer?status=success&bookingId=${bookingResult.id}`);
         }
@@ -153,12 +150,10 @@ export default function BookingPage() {
         });
         window.location.href = khaltiResponse.payment_url;
       } else {
-        play('success');
         showToast('Booking confirmed! We\'ll assign a technician shortly.', 'success');
         router.push(`/dashboard/customer?status=success&bookingId=${bookingResult.id}&msg=cash_confirmed`);
       }
     } catch (err: any) {
-      play('error');
       showToast(err.message || 'Could not complete your booking. Please try again.', 'error');
       setSubmitting(false);
     }
@@ -174,14 +169,14 @@ export default function BookingPage() {
 
   if (!selectedService || !selectedItem) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-semibold">
+      <div className="min-h-screen flex items-center justify-center bg-sky-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-semibold">
         Loading services catalog...
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
+    <div className="min-h-screen bg-sky-50 dark:bg-slate-950 flex flex-col font-sans">
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-2">
         <Link href="/" className="flex items-center gap-2 min-w-0">
           <div className="bg-[#0B3C5D] text-white p-2 rounded-lg text-xs font-black shrink-0">SN</div>
@@ -223,7 +218,7 @@ export default function BookingPage() {
                       className={`p-3 rounded-xl border text-left text-xs font-bold transition-all ${
                         selectedService.id === s.id
                           ? 'border-[#328CC1] bg-[#328CC1]/5 text-[#328CC1]'
-                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:bg-slate-950'
+                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:bg-slate-950'
                       }`}
                     >
                       {s.name}
@@ -238,7 +233,7 @@ export default function BookingPage() {
                   {selectedService.categories.map((cat: any) => (
                     <div
                       key={cat.id}
-                      className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                      className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-sky-50 dark:bg-slate-950"
                     >
                       <h4 className="font-bold text-sm text-slate-800 dark:text-slate-100">{cat.name}</h4>
                       <p className="text-xs text-slate-500 dark:text-slate-400">{cat.description}</p>
@@ -254,7 +249,7 @@ export default function BookingPage() {
                       className={`p-4 rounded-xl border cursor-pointer transition-all flex justify-between items-center ${
                         selectedItem.id === it.id
                           ? 'border-[#328CC1] bg-[#328CC1]/5 shadow-xs dark:shadow-none'
-                          : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:bg-slate-950'
+                          : 'border-slate-200 dark:border-slate-700 hover:bg-sky-50 dark:bg-slate-950'
                       }`}
                     >
                       <div>
@@ -291,7 +286,7 @@ export default function BookingPage() {
                       className={`py-2 px-1.5 sm:px-3 rounded-lg border text-[11px] sm:text-xs font-bold transition-all ${
                         city === c
                           ? 'border-[#328CC1] bg-[#328CC1]/5 text-[#328CC1]'
-                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:bg-slate-950'
+                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:bg-slate-950'
                       }`}
                     >
                       {c}
@@ -384,7 +379,7 @@ export default function BookingPage() {
                       className={`p-4 rounded-xl border cursor-pointer flex items-center justify-between transition-all ${
                         paymentMethod === p.key
                           ? 'border-[#328CC1] bg-[#328CC1]/5'
-                          : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:bg-slate-950'
+                          : 'border-slate-200 dark:border-slate-700 hover:bg-sky-50 dark:bg-slate-950'
                       }`}
                     >
                       <div>

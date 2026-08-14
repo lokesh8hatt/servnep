@@ -8,7 +8,6 @@ import { fetchApi } from '@/lib/api';
 import { Phone, KeyRound, ArrowRight, ShieldCheck, User, Wrench, ShieldAlert } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SoundToggle } from '@/components/SoundToggle';
-import { useSound } from '@/context/SoundContext';
 import { useToast } from '@/context/ToastContext';
 
 const QUICK_LOGIN_ROLES = [
@@ -20,7 +19,6 @@ const QUICK_LOGIN_ROLES = [
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
-  const { play } = useSound();
   const { showToast } = useToast();
 
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
@@ -67,11 +65,9 @@ export default function LoginPage() {
         result.accessToken,
         result.refreshToken,
       );
-      play('success');
       showToast(`Welcome, ${result.user.fullName}!`, 'success');
       redirectForRole(result.user.role);
     } catch (err: any) {
-      play('error');
       setError(err.message || 'Quick login failed. Please try again.');
     } finally {
       setQuickLoadingRole('');
@@ -100,10 +96,8 @@ export default function LoginPage() {
         setDevOtp(result.devOtp);
         setOtpCode(result.devOtp);
       }
-      play('notify');
       setStep('otp');
     } catch (err: any) {
-      play('error');
       setError(err.message || 'Failed to send OTP. Please try again.');
     } finally {
       setLoading(false);
@@ -137,11 +131,9 @@ export default function LoginPage() {
         result.refreshToken,
       );
 
-      play('success');
       showToast(`Welcome, ${result.user.fullName}!`, 'success');
       redirectForRole(result.user.role);
     } catch (err: any) {
-      play('error');
       setError(err.message || 'Invalid OTP. Please try again.');
     } finally {
       setLoading(false);
@@ -149,7 +141,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col">
+    <div className="min-h-screen bg-sky-50 dark:bg-slate-950 flex flex-col">
       {/* Header */}
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">

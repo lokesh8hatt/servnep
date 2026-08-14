@@ -8,12 +8,10 @@ import { useAuth } from '@/context/AuthContext';
 import { User, CheckCircle, Navigation, Phone, MapPin, DollarSign, Star, RefreshCw, XCircle, LogOut, Clock } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SoundToggle } from '@/components/SoundToggle';
-import { useSound } from '@/context/SoundContext';
 import { useToast } from '@/context/ToastContext';
 
 export default function TechnicianDashboard() {
   const { user, logout } = useAuth();
-  const { play } = useSound();
   const { showToast } = useToast();
   const [profile, setProfile] = useState<any>(null);
   const [jobs, setJobs] = useState<any[]>([]);
@@ -51,11 +49,9 @@ export default function TechnicianDashboard() {
           imagesAfter: nextStatus === 'COMPLETED' ? ['https://images.unsplash.com/photo-1504328345606-18bbc8c9d7d1?auto=format&fit=crop&q=80&w=400'] : [],
         }),
       });
-      play(nextStatus === 'COMPLETED' ? 'success' : nextStatus === 'CANCELLED' ? 'error' : 'notify');
       showToast(STATUS_MESSAGES[nextStatus] || 'Job updated.', nextStatus === 'CANCELLED' ? 'info' : 'success');
       loadData();
     } catch (err: any) {
-      play('error');
       showToast(err.message || 'Could not update the job. Please try again.', 'error');
     }
   };
@@ -77,7 +73,7 @@ export default function TechnicianDashboard() {
 
   return (
     <AuthGuard requiredRole="TECHNICIAN">
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
+      <div className="min-h-screen bg-sky-50 dark:bg-slate-950 flex flex-col font-sans">
         <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-3 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-y-2 shadow-xs dark:shadow-none">
           <Link href="/" className="flex items-center gap-2">
             <div className="bg-[#0B3C5D] text-white p-2 rounded-lg text-xs font-black">SN</div>
@@ -123,11 +119,11 @@ export default function TechnicianDashboard() {
                 <DollarSign size={16} className="text-emerald-600" /> Earnings Overview
               </h4>
               <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800">
+                <div className="p-3 bg-sky-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800">
                   <span className="text-[10px] text-slate-500 dark:text-slate-400 block uppercase font-bold">Gross</span>
                   <span className="text-sm font-extrabold text-slate-800 dark:text-slate-100">Rs.{earnings.total}</span>
                 </div>
-                <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800">
+                <div className="p-3 bg-sky-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800">
                   <span className="text-[10px] text-slate-500 dark:text-slate-400 block uppercase font-bold">Fee</span>
                   <span className="text-sm font-extrabold text-red-500">Rs.{earnings.commission}</span>
                 </div>

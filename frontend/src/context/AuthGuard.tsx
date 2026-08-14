@@ -50,7 +50,7 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
   // Show loading state while checking auth
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+      <div className="min-h-screen flex items-center justify-center bg-sky-50 dark:bg-slate-950">
         <div className="text-center space-y-4">
           <div className="w-12 h-12 border-4 border-[#328CC1] border-t-transparent rounded-full animate-spin mx-auto"></div>
           <p className="text-sm text-slate-500 dark:text-slate-400 font-semibold">Verifying your session...</p>
@@ -62,7 +62,7 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
   // Not authenticated
   if (!isAuthenticated || !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+      <div className="min-h-screen flex items-center justify-center bg-sky-50 dark:bg-slate-950">
         <div className="text-center space-y-4">
           <div className="w-12 h-12 border-4 border-[#328CC1] border-t-transparent rounded-full animate-spin mx-auto"></div>
           <p className="text-sm text-slate-500 dark:text-slate-400 font-semibold">Redirecting to login...</p>
@@ -78,7 +78,7 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
 
   if (!roleMatches) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+      <div className="min-h-screen flex items-center justify-center bg-sky-50 dark:bg-slate-950">
         <div className="text-center space-y-4">
           <div className="w-12 h-12 border-4 border-[#328CC1] border-t-transparent rounded-full animate-spin mx-auto"></div>
           <p className="text-sm text-slate-500 dark:text-slate-400 font-semibold">Redirecting to your dashboard...</p>

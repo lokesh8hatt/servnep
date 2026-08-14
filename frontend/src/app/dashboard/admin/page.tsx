@@ -8,12 +8,10 @@ import { useAuth } from '@/context/AuthContext';
 import { TrendingUp, Users, ShoppingBag, CheckCircle, Clock, Send, RefreshCw, LogOut, Shield } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SoundToggle } from '@/components/SoundToggle';
-import { useSound } from '@/context/SoundContext';
 import { useToast } from '@/context/ToastContext';
 
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
-  const { play } = useSound();
   const { showToast } = useToast();
   const [bookings, setBookings] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState('ALL');
@@ -49,11 +47,9 @@ export default function AdminDashboard() {
           technicianId: DEMO_TECHNICIAN_ID,
         }),
       });
-      play('success');
       showToast('Technician dispatched.', 'success');
       loadData();
     } catch (err: any) {
-      play('error');
       showToast(err.message || 'Could not dispatch a technician. Please try again.', 'error');
     }
   };
@@ -75,7 +71,7 @@ export default function AdminDashboard() {
 
   return (
     <AuthGuard requiredRole="ADMIN">
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
+      <div className="min-h-screen bg-sky-50 dark:bg-slate-950 flex flex-col font-sans">
         <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-3 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-y-2 shadow-xs dark:shadow-none">
           <Link href="/" className="flex items-center gap-2">
             <div className="bg-[#0B3C5D] text-white p-2 rounded-lg text-xs font-black">SN</div>
@@ -152,13 +148,13 @@ export default function AdminDashboard() {
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                       activeTab === tab
                         ? 'bg-slate-900 text-white'
-                        : 'bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:bg-slate-800'
+                        : 'bg-sky-50 dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:bg-slate-800'
                     }`}
                   >
                     {tab}
                   </button>
                 ))}
-                <button onClick={loadData} className="p-2 bg-slate-50 dark:bg-slate-950 border rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:bg-slate-800" title="Refresh" aria-label="Refresh">
+                <button onClick={loadData} className="p-2 bg-sky-50 dark:bg-slate-950 border rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:bg-slate-800" title="Refresh" aria-label="Refresh">
                   <RefreshCw size={14} />
                 </button>
               </div>
@@ -184,7 +180,7 @@ export default function AdminDashboard() {
                     </tr>
                   ) : (
                     filteredBookings.map((b) => (
-                      <tr key={b.id} className="border-b border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:bg-slate-950/50 transition-colors">
+                      <tr key={b.id} className="border-b border-slate-200 dark:border-slate-700 hover:bg-sky-50 dark:bg-slate-950/50 transition-colors">
                         <td className="py-4 pr-4 font-bold text-slate-800 dark:text-slate-100">{b.bookingNumber}</td>
                         <td className="py-4 pr-4">
                           <p className="font-bold text-slate-800 dark:text-slate-100">{b.customerName}</p>

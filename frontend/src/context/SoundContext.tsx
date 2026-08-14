@@ -1,12 +1,11 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import { playSound, SoundName } from '@/lib/sounds';
+import { playClickSound } from '@/lib/sounds';
 
 interface SoundContextType {
   soundEnabled: boolean;
   toggleSound: () => void;
-  play: (name: SoundName) => void;
 }
 
 const SoundContext = createContext<SoundContextType | undefined>(undefined);
@@ -26,14 +25,8 @@ export function SoundProvider({ children }: { children: React.ReactNode }) {
     setSoundEnabled((prev) => {
       const next = !prev;
       localStorage.setItem(STORAGE_KEY, next ? '0' : '1');
-      // Play on the transition to "on" so the toggle itself gives feedback.
-      if (next) playSound('toggle', true);
       return next;
     });
-  }, []);
-
-  const play = useCallback((name: SoundName) => {
-    playSound(name, soundEnabledRef.current);
   }, []);
 
   // Delegated listener: gives every button/link/checkbox/select in the app a
@@ -48,14 +41,14 @@ export function SoundProvider({ children }: { children: React.ReactNode }) {
       ) as HTMLButtonElement | null;
       if (!interactive) return;
       if (interactive.hasAttribute('data-no-sound') || interactive.disabled) return;
-      playSound('click', true);
+      playClickSound(true);
     };
     document.addEventListener('click', handler, true);
     return () => document.removeEventListener('click', handler, true);
   }, []);
 
   return (
-    <SoundContext.Provider value={{ soundEnabled, toggleSound, play }}>
+    <SoundContext.Provider value={{ soundEnabled, toggleSound }}>
       {children}
     </SoundContext.Provider>
   );

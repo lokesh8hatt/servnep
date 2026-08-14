@@ -8,12 +8,10 @@ import { useAuth } from '@/context/AuthContext';
 import { User, MapPin, Download, Award, RefreshCw, Star, LogOut, ShoppingBag } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SoundToggle } from '@/components/SoundToggle';
-import { useSound } from '@/context/SoundContext';
 import { useToast } from '@/context/ToastContext';
 
 export default function CustomerDashboard() {
   const { user, logout } = useAuth();
-  const { play } = useSound();
   const { showToast } = useToast();
   const [profile, setProfile] = useState<any>(null);
   const [bookings, setBookings] = useState<any[]>([]);
@@ -53,7 +51,6 @@ export default function CustomerDashboard() {
       setTimeout(() => URL.revokeObjectURL(url), 30000);
     } catch (err: any) {
       invoiceWindow?.close();
-      play('error');
       showToast(err.message || 'Could not load the invoice. Please try again.', 'error');
     }
   };
@@ -68,13 +65,11 @@ export default function CustomerDashboard() {
         method: 'POST',
         body: JSON.stringify({ bookingId: selectedBookingId, rating, comment }),
       });
-      play('success');
       showToast('Thanks! Your review has been submitted.', 'success');
       setShowReviewModal(false);
       setComment('');
       loadData();
     } catch (err: any) {
-      play('error');
       showToast(err.message || 'Could not submit your review. Please try again.', 'error');
     }
   };
@@ -90,7 +85,7 @@ export default function CustomerDashboard() {
 
   return (
     <AuthGuard requiredRole="CUSTOMER">
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
+      <div className="min-h-screen bg-sky-50 dark:bg-slate-950 flex flex-col font-sans">
         <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-3 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-y-2 shadow-xs dark:shadow-none">
           <Link href="/" className="flex items-center gap-2">
             <div className="bg-[#0B3C5D] text-white p-2 rounded-lg text-xs font-black">SN</div>
@@ -125,7 +120,7 @@ export default function CustomerDashboard() {
                   {user?.role}
                 </span>
               </div>
-              <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-100 dark:border-slate-800 flex justify-between items-center text-xs">
+              <div className="bg-sky-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-100 dark:border-slate-800 flex justify-between items-center text-xs">
                 <span className="text-slate-500 dark:text-slate-400 font-semibold flex items-center gap-1">
                   <Award size={14} className="text-amber-500" /> Referral:
                 </span>
