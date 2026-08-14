@@ -53,18 +53,19 @@ export class AuthService {
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes expiry
     this.otpStorage.set(phoneNumber, { code: otpCode, expiresAt });
 
-    // In production, this would call an SMS gateway API instead.
-    // Outside production there's no SMS gateway wired up, so the OTP is both
-    // logged (for terminal access) and returned in the response (devOtp) so
-    // the login page can surface it directly — no server console needed.
-    const isProduction = process.env.NODE_ENV === 'production';
-    if (!isProduction) {
+    // In production, this would call an SMS gateway API instead. Outside
+    // production — or in a production deploy explicitly flagged as a public
+    // demo via DEMO_MODE — there's no real SMS gateway wired up, so the OTP
+    // is both logged and returned in the response (devOtp) so the login page
+    // can surface it directly with no server console access needed.
+    const isLiveProduction = process.env.NODE_ENV === 'production' && process.env.DEMO_MODE !== 'true';
+    if (!isLiveProduction) {
       console.log(`[DEV] OTP for ${phoneNumber}: ${otpCode}`);
     }
 
     return {
       message: 'OTP sent successfully via SMS',
-      ...(isProduction ? {} : { devOtp: otpCode }),
+      ...(isLiveProduction ? {} : { devOtp: otpCode }),
     };
   }
 
@@ -103,12 +104,14 @@ export class AuthService {
   }
 
   /**
-   * One-click login with no phone number or OTP at all, for local demo/testing.
-   * Never available in production — there's no real SMS gateway to bypass there,
-   * only a genuine credential check that must not be skippable.
+   * One-click login with no phone number or OTP at all, for demo/testing.
+   * Blocked in production unless DEMO_MODE=true is explicitly set — that
+   * flag exists for deployments that are themselves just a public demo
+   * (no real user data, no real SMS gateway to bypass); a real production
+   * deployment should never set it.
    */
   async devLogin(role: UserRole): Promise<{ accessToken: string; refreshToken: string; user: { id: string; phone: string; role: UserRole; fullName: string } }> {
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV === 'production' && process.env.DEMO_MODE !== 'true') {
       throw new ForbiddenException('Instant demo login is not available in production');
     }
 
