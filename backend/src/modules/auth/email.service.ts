@@ -22,9 +22,19 @@ export class EmailService {
       );
     }
     if (!this.transporter) {
+      // Explicit host/port 587 (STARTTLS) rather than the 'service: gmail'
+      // shorthand (which defaults to port 465) — some hosts block one but
+      // not the other. Short timeouts so a blocked port fails in seconds
+      // instead of leaving the request hanging for minutes.
       this.transporter = nodemailer.createTransport({
-        service: 'gmail',
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false,
+        requireTLS: true,
         auth: { user, pass },
+        connectionTimeout: 15000,
+        greetingTimeout: 15000,
+        socketTimeout: 15000,
       });
     }
     return this.transporter;
