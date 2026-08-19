@@ -19,12 +19,14 @@ export default function BookingPage() {
   const { showToast } = useToast();
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-  // 'checkout' = real eSewa/Khalti hosted payment page opens, like a normal
-  // online purchase (test environment — no merchant account exists, but the
-  // actual gateway UI and signature verification are real, not simulated).
   // 'manual' = send the transfer directly to MANUAL_PAYMENT_NUMBER and claim
-  // it with a transaction reference for the admin to verify — real money.
-  const [payFlow, setPayFlow] = useState<'checkout' | 'manual'>('checkout');
+  // it with a transaction reference for the admin to verify — real money,
+  // and the only option that is (default, since there's no merchant account).
+  // 'checkout' = eSewa/Khalti's real hosted sandbox page opens — the gateway
+  // UI and signature verification are real, but it only accepts eSewa/Khalti's
+  // published test logins, never a real personal account. No real money ever
+  // moves through it. Kept as an opt-in technical demo, not the default.
+  const [payFlow, setPayFlow] = useState<'checkout' | 'manual'>('manual');
   const [khaltiConfigured, setKhaltiConfigured] = useState(true);
   const [manualPaymentBooking, setManualPaymentBooking] = useState<{ id: string; amount: number } | null>(null);
   const [paymentReference, setPaymentReference] = useState('');
@@ -453,40 +455,40 @@ export default function BookingPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <button
                         type="button"
+                        onClick={() => setPayFlow('manual')}
+                        className={`text-left p-3 rounded-xl border transition-all ${
+                          payFlow === 'manual' ? 'border-[#328CC1] bg-[#328CC1]/5' : 'border-slate-200 dark:border-slate-700 hover:bg-sky-50 dark:hover:bg-slate-950'
+                        }`}
+                      >
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block">Pay with your {paymentMethod === 'KHALTI' ? 'Khalti' : 'eSewa'} app (Real)</span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">Send to {MANUAL_PAYMENT_NUMBER} yourself, confirmed by admin</span>
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setPayFlow('checkout')}
                         disabled={paymentMethod === 'KHALTI' && !khaltiConfigured}
                         className={`text-left p-3 rounded-xl border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                           payFlow === 'checkout' ? 'border-[#328CC1] bg-[#328CC1]/5' : 'border-slate-200 dark:border-slate-700 hover:bg-sky-50 dark:hover:bg-slate-950'
                         }`}
                       >
-                        <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block">Open {paymentMethod === 'KHALTI' ? 'Khalti' : 'eSewa'} Checkout</span>
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400">Redirects to {paymentMethod === 'KHALTI' ? 'Khalti' : 'eSewa'}, just like an online purchase</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPayFlow('manual')}
-                        className={`text-left p-3 rounded-xl border transition-all ${
-                          payFlow === 'manual' ? 'border-[#328CC1] bg-[#328CC1]/5' : 'border-slate-200 dark:border-slate-700 hover:bg-sky-50 dark:hover:bg-slate-950'
-                        }`}
-                      >
-                        <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block">Send Directly</span>
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400">Pay {MANUAL_PAYMENT_NUMBER} yourself, confirmed by admin</span>
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block">Test Sandbox (fake money)</span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">Demo of {paymentMethod === 'KHALTI' ? 'Khalti' : 'eSewa'}'s real checkout UI — needs their test login, not yours</span>
                       </button>
                     </div>
 
                     {paymentMethod === 'KHALTI' && !khaltiConfigured && (
                       <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold">
-                        Khalti checkout isn't set up yet on this deployment — use Send Directly, or try eSewa checkout instead.
+                        Khalti sandbox isn't set up on this deployment — pay with your Khalti app instead, or try the eSewa sandbox.
                       </p>
                     )}
 
                     {payFlow === 'checkout' && !(paymentMethod === 'KHALTI' && !khaltiConfigured) && (
                       <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-xl p-3 text-[11px] text-amber-800 dark:text-amber-300 space-y-1">
-                        <p className="font-bold">🧪 Test environment — no real money moves through this option</p>
+                        <p className="font-bold">🧪 Test sandbox — this does NOT move real money, and your real {paymentMethod === 'KHALTI' ? 'Khalti' : 'eSewa'} login will NOT work here</p>
                         {paymentMethod === 'ESEWA' ? (
-                          <p>Complete the real eSewa checkout with the test account: ID <strong>9711111111</strong>, password <strong>Nepal@123</strong>, MPIN <strong>1122</strong>, token <strong>123456</strong>.</p>
+                          <p>It only accepts eSewa's published test account: ID <strong>9711111111</strong>, password <strong>Nepal@123</strong>, MPIN <strong>1122</strong>, token <strong>123456</strong>. To actually pay, use "Pay with your eSewa app" instead.</p>
                         ) : (
-                          <p>You'll be redirected to Khalti's real sandbox checkout to test the full flow.</p>
+                          <p>It only accepts Khalti's test login, not a real account. To actually pay, use "Pay with your Khalti app" instead.</p>
                         )}
                       </div>
                     )}

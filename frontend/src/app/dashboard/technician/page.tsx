@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { fetchApi } from '@/lib/api';
 import { AuthGuard } from '@/context/AuthGuard';
@@ -10,11 +10,18 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { SoundToggle } from '@/components/SoundToggle';
 import { useToast } from '@/context/ToastContext';
 
+// Only send a location update this often — watchPosition can fire far more
+// frequently than that, and there's no need to hammer the API every time.
+const LOCATION_SEND_INTERVAL_MS = 15000;
+
 export default function TechnicianDashboard() {
   const { user, logout } = useAuth();
   const { showToast } = useToast();
   const [profile, setProfile] = useState<any>(null);
   const [jobs, setJobs] = useState<any[]>([]);
+  const [sharingLocation, setSharingLocation] = useState(false);
+  const [locationError, setLocationError] = useState('');
+  const lastSentAtRef = useRef(0);
 
   const loadData = async () => {
     try {
@@ -33,6 +40,38 @@ export default function TechnicianDashboard() {
   useEffect(() => {
     loadData();
   }, []);
+
+  const activeJob = jobs.find((j) => j.status === 'ASSIGNED' || j.status === 'IN_PROGRESS');
+
+  useEffect(() => {
+    if (!activeJob || typeof navigator === 'undefined' || !navigator.geolocation) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        setLocationError('');
+        setSharingLocation(true);
+        const now = Date.now();
+        if (now - lastSentAtRef.current < LOCATION_SEND_INTERVAL_MS) return;
+        lastSentAtRef.current = now;
+        fetchApi('/users/me/location', {
+          method: 'PATCH',
+          body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        }).catch(() => {
+          // Best-effort — a dropped location update isn't worth interrupting the technician.
+        });
+      },
+      () => {
+        setSharingLocation(false);
+        setLocationError('Location sharing is off — enable it in your browser so the customer can track you.');
+      },
+      { enableHighAccuracy: true, maximumAge: 10000 },
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+      setSharingLocation(false);
+    };
+  }, [activeJob?.id]);
 
   const STATUS_MESSAGES: Record<string, string> = {
     COMPLETED: 'Job marked as complete. Nice work!',
@@ -134,6 +173,21 @@ export default function TechnicianDashboard() {
               </div>
               <p className="text-[10px] text-slate-400 dark:text-slate-500 text-center">Platform fee: 20% commission</p>
             </div>
+
+            {activeJob && (
+              <div className={`p-3 rounded-2xl border text-xs font-bold flex items-center gap-2 ${
+                sharingLocation
+                  ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-100 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                  : 'bg-amber-50 dark:bg-amber-500/10 border-amber-100 dark:border-amber-500/20 text-amber-700 dark:text-amber-300'
+              }`}>
+                <MapPin size={14} className="shrink-0" />
+                <span>
+                  {sharingLocation
+                    ? `Sharing your live location for job ${activeJob.bookingNumber}`
+                    : locationError || 'Waiting for location permission…'}
+                </span>
+              </div>
+            )}
 
             {/* Availability Toggle */}
             <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none flex items-center justify-between">

@@ -55,4 +55,33 @@ export class EmailService {
       throw new BadRequestException('Could not send the verification email. Please try again shortly.');
     }
   }
+
+  // Best-effort — a failed send here must never break the booking flow, so
+  // errors are logged and swallowed rather than thrown (unlike sendOtpEmail,
+  // where the caller needs to know delivery failed).
+  async sendBookingAssignedEmail(
+    to: string,
+    data: { customerName: string; technicianName: string; bookingNumber: string; scheduledDate: string; scheduledTimeSlot: string },
+  ): Promise<void> {
+    try {
+      const transporter = this.getTransporter();
+      const from = this.configService.get<string>('email.gmailUser');
+      await transporter.sendMail({
+        from: `ServeNep <${from}>`,
+        to,
+        subject: `${data.technicianName} is assigned to your ServeNep booking ${data.bookingNumber}`,
+        text: `Hi ${data.customerName}, ${data.technicianName} has been assigned to your booking ${data.bookingNumber}, scheduled for ${data.scheduledDate} (${data.scheduledTimeSlot}). You can track their live location from your ServeNep dashboard once they're on the way.`,
+        html: `
+          <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 420px; margin: 0 auto; padding: 32px 24px;">
+            <div style="background: #0B3C5D; color: #fff; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 13px; margin-bottom: 20px;">SN</div>
+            <h2 style="color: #0B3C5D; margin: 0 0 8px;">A technician has been assigned</h2>
+            <p style="color: #64748b; font-size: 14px; margin: 0 0 20px;">Hi ${data.customerName}, <strong>${data.technicianName}</strong> is on your booking <strong>${data.bookingNumber}</strong>, scheduled for ${data.scheduledDate} (${data.scheduledTimeSlot}).</p>
+            <p style="color: #64748b; font-size: 14px; margin: 0;">Open your ServeNep dashboard to track their live location once they're on the way.</p>
+          </div>
+        `,
+      });
+    } catch (err: any) {
+      this.logger.error(`Failed to send booking-assigned email to ${to}: ${err.message}`);
+    }
+  }
 }

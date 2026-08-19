@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { fetchApi, fetchApiBlob } from '@/lib/api';
 import { AuthGuard } from '@/context/AuthGuard';
 import { useAuth } from '@/context/AuthContext';
@@ -9,6 +10,9 @@ import { User, MapPin, Download, Award, RefreshCw, Star, LogOut, ShoppingBag, Se
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SoundToggle } from '@/components/SoundToggle';
 import { useToast } from '@/context/ToastContext';
+
+// Leaflet touches `window` at import time, so it can only ever run client-side.
+const TechnicianMap = dynamic(() => import('@/components/TechnicianMap'), { ssr: false });
 
 const MANUAL_PAYMENT_NUMBER = '9868918609';
 
@@ -40,6 +44,10 @@ export default function CustomerDashboard() {
   const [claimingBookingId, setClaimingBookingId] = useState('');
   const [paymentReferences, setPaymentReferences] = useState<Record<string, string>>({});
 
+  // Tracks each booking's last-seen technicianId so a poll can detect a
+  // fresh assignment and fire a notification — not just refresh silently.
+  const lastKnownTechnicianRef = useRef<Record<string, string | null> | null>(null);
+
   const loadData = async () => {
     try {
       const [profData, bookData] = await Promise.all([
@@ -47,6 +55,23 @@ export default function CustomerDashboard() {
         fetchApi('/bookings'),
       ]);
       setProfile(profData);
+
+      const previous = lastKnownTechnicianRef.current;
+      if (previous) {
+        bookData.forEach((b: any) => {
+          const wasAssigned = previous[b.id];
+          if (wasAssigned === undefined ? false : !wasAssigned && b.technicianId) {
+            showToast(`${b.technicianName} has been assigned to your booking ${b.bookingNumber}!`, 'success');
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+              new Notification('Technician assigned', {
+                body: `${b.technicianName} is on the way for booking ${b.bookingNumber}.`,
+              });
+            }
+          }
+        });
+      }
+      lastKnownTechnicianRef.current = Object.fromEntries(bookData.map((b: any) => [b.id, b.technicianId]));
+
       setBookings(bookData);
     } catch {
       // If API fails (e.g. token expired), logout
@@ -77,6 +102,15 @@ export default function CustomerDashboard() {
 
   useEffect(() => {
     loadData();
+    // Polling keeps this feeling live without needing a WebSocket server.
+    const interval = setInterval(loadData, 8000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
   }, []);
 
   const handleReviewSubmit = async () => {
@@ -246,6 +280,10 @@ export default function CustomerDashboard() {
                         <p className="text-slate-800 dark:text-slate-100 font-bold mt-0.5">Rs. {booking.totalAmount}</p>
                       </div>
                     </div>
+
+                    {(booking.status === 'ASSIGNED' || booking.status === 'IN_PROGRESS') && (
+                      <TechnicianMap bookingId={booking.id} />
+                    )}
 
                     {booking.paymentMethod !== 'CASH' && booking.paymentStatus === 'PENDING' && (
                       <div className="bg-sky-50 dark:bg-slate-950 rounded-xl p-3 space-y-2 text-xs">

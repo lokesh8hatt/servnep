@@ -3,8 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ServicesService } from '../services/services.service';
 import { UsersService } from '../users/users.service';
+import { EmailService } from '../auth/email.service';
 import { Booking, BookingStatus, PaymentMethod, PaymentStatus } from './entities/booking.entity';
 import { User, UserRole } from '../users/entities/user.entity';
+import { TechnicianProfile } from '../users/entities/technician-profile.entity';
+import { UserPayload } from '../../common/decorators/user.decorator';
 
 export interface BookingDto {
   id: string;
@@ -39,11 +42,33 @@ export class BookingsService {
   constructor(
     private readonly servicesService: ServicesService,
     private readonly usersService: UsersService,
+    private readonly emailService: EmailService,
     @InjectRepository(Booking)
     private readonly bookingRepository: Repository<Booking>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(TechnicianProfile)
+    private readonly technicianProfileRepository: Repository<TechnicianProfile>,
   ) {}
+
+  private checkBookingAccess(booking: Booking, requester: { sub: string; role: string }): void {
+    const isOwner = booking.customerId === requester.sub || booking.technicianId === requester.sub;
+    const isStaff = requester.role === 'ADMIN' || requester.role === 'DISPATCHER';
+    if (!isOwner && !isStaff) {
+      throw new ForbiddenException('You do not have access to this booking');
+    }
+  }
+
+  private async notifyTechnicianAssigned(booking: Booking, customer: User, technician: User): Promise<void> {
+    if (!this.emailService.isConfigured() || !customer.email) return;
+    await this.emailService.sendBookingAssignedEmail(customer.email, {
+      customerName: customer.fullName,
+      technicianName: technician.fullName,
+      bookingNumber: booking.bookingNumber,
+      scheduledDate: booking.scheduledDate,
+      scheduledTimeSlot: booking.scheduledTimeSlot,
+    });
+  }
 
   private toDto(booking: Booking): BookingDto {
     return {
@@ -152,13 +177,19 @@ export class BookingsService {
       }
     }
 
-    return this.toDto({
+    const fullBooking = {
       ...saved!,
       customer,
       technician,
       address,
       serviceItem: item,
-    } as Booking);
+    } as Booking;
+
+    if (technician) {
+      await this.notifyTechnicianAssigned(fullBooking, customer, technician);
+    }
+
+    return this.toDto(fullBooking);
   }
 
   async findAll(userId: string, role: string): Promise<BookingDto[]> {
@@ -177,17 +208,46 @@ export class BookingsService {
     return bookings.map((b) => this.toDto(b));
   }
 
+  // Unauthenticated lookup for internal use by other services (payments,
+  // reviews) that already enforce their own ownership checks against the
+  // booking they fetch — see findByIdForUser for the customer-facing route.
   async findById(id: string): Promise<BookingDto> {
     return this.toDto(await this.loadWithRelations(id));
   }
 
+  async findByIdForUser(id: string, requester: { sub: string; role: string }): Promise<BookingDto> {
+    const booking = await this.loadWithRelations(id);
+    this.checkBookingAccess(booking, requester);
+    return this.toDto(booking);
+  }
+
+  async getTechnicianLocation(
+    id: string,
+    requester: { sub: string; role: string },
+  ): Promise<{ lat: number; lng: number; updatedAt: string } | null> {
+    const booking = await this.loadWithRelations(id);
+    this.checkBookingAccess(booking, requester);
+
+    const isTrackable =
+      (booking.status === BookingStatus.ASSIGNED || booking.status === BookingStatus.IN_PROGRESS) &&
+      !!booking.technicianId;
+    if (!isTrackable) return null;
+
+    const profile = await this.technicianProfileRepository.findOne({ where: { userId: booking.technicianId! } });
+    if (!profile || profile.latitude == null || profile.longitude == null || !profile.locationUpdatedAt) {
+      return null;
+    }
+
+    return {
+      lat: profile.latitude,
+      lng: profile.longitude,
+      updatedAt: profile.locationUpdatedAt.toISOString(),
+    };
+  }
+
   async getInvoiceHtml(id: string, requester: { sub: string; role: string }): Promise<string> {
     const booking = await this.loadWithRelations(id);
-    const isOwner = booking.customerId === requester.sub || booking.technicianId === requester.sub;
-    const isStaff = requester.role === 'ADMIN' || requester.role === 'DISPATCHER';
-    if (!isOwner && !isStaff) {
-      throw new ForbiddenException('You do not have access to this booking');
-    }
+    this.checkBookingAccess(booking, requester);
 
     const dto = this.toDto(booking);
     const issuedAt = new Date(dto.createdAt).toLocaleDateString('en-US', {
@@ -273,8 +333,18 @@ export class BookingsService {
     return bookings.map((b) => b.id);
   }
 
-  async updateStatus(id: string, status: BookingStatus, imagesAfter?: string[]): Promise<BookingDto> {
+  async updateStatus(
+    id: string,
+    status: BookingStatus,
+    imagesAfter: string[] | undefined,
+    requester: { sub: string; role: string },
+  ): Promise<BookingDto> {
     const booking = await this.loadWithRelations(id);
+    const isAssignedTechnician = requester.role === 'TECHNICIAN' && booking.technicianId === requester.sub;
+    const isStaff = requester.role === 'ADMIN' || requester.role === 'DISPATCHER';
+    if (!isAssignedTechnician && !isStaff) {
+      throw new ForbiddenException('You are not assigned to this booking');
+    }
     booking.status = status;
     if (status === BookingStatus.COMPLETED && imagesAfter) {
       booking.imagesAfter = imagesAfter;
@@ -301,6 +371,11 @@ export class BookingsService {
     booking.technicianId = technician.id;
     booking.technician = technician;
     await this.bookingRepository.save(booking);
+
+    if (booking.customer) {
+      await this.notifyTechnicianAssigned(booking, booking.customer, technician);
+    }
+
     return this.toDto(booking);
   }
 }

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import { Address } from './entities/address.entity';
+import { TechnicianProfile } from './entities/technician-profile.entity';
 
 const DEFAULT_AVATAR_URL =
   'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200';
@@ -14,6 +15,8 @@ export class UsersService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Address)
     private readonly addressRepository: Repository<Address>,
+    @InjectRepository(TechnicianProfile)
+    private readonly technicianProfileRepository: Repository<TechnicianProfile>,
   ) {}
 
   async getProfile(userId: string) {
@@ -64,5 +67,16 @@ export class UsersService {
     address: { label: string; street: string; city: string; lat: number; lng: number },
   ): Promise<Address> {
     return this.addressRepository.save(this.addressRepository.create({ userId, ...address }));
+  }
+
+  async updateMyLocation(userId: string, lat: number, lng: number): Promise<{ message: string }> {
+    // upsert since demo/registered technicians may not have a profile row yet
+    // (only the seed script creates one today) — userId is unique, so this
+    // creates the row on first location push and updates it after.
+    await this.technicianProfileRepository.upsert(
+      { userId, latitude: lat, longitude: lng, locationUpdatedAt: new Date() },
+      ['userId'],
+    );
+    return { message: 'Location updated' };
   }
 }

@@ -88,8 +88,8 @@ export class BookingsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get booking details by ID' })
-  findById(@Param('id') id: string) {
-    return this.bookingsService.findById(id);
+  findById(@Param('id') id: string, @CurrentUser() user: UserPayload) {
+    return this.bookingsService.findByIdForUser(id, user);
   }
 
   @Get(':id/invoice')
@@ -99,11 +99,17 @@ export class BookingsController {
     return this.bookingsService.getInvoiceHtml(id, user);
   }
 
+  @Get(':id/technician-location')
+  @ApiOperation({ summary: "Get the assigned technician's last-known live location for a booking" })
+  getTechnicianLocation(@Param('id') id: string, @CurrentUser() user: UserPayload) {
+    return this.bookingsService.getTechnicianLocation(id, user);
+  }
+
   @Patch(':id/status')
   @Roles('ADMIN', 'DISPATCHER', 'TECHNICIAN')
   @ApiOperation({ summary: 'Update the progress status of a job' })
-  updateStatus(@Param('id') id: string, @Body() dto: UpdateStatusDto) {
-    return this.bookingsService.updateStatus(id, dto.status, dto.imagesAfter);
+  updateStatus(@Param('id') id: string, @Body() dto: UpdateStatusDto, @CurrentUser() user: UserPayload) {
+    return this.bookingsService.updateStatus(id, dto.status, dto.imagesAfter, user);
   }
 
   @Post(':id/assign')

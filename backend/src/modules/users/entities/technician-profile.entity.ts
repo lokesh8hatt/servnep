@@ -40,6 +40,17 @@ export class TechnicianProfile {
   @Column({ type: 'decimal', precision: 5, scale: 2, default: 10.0, transformer: DecimalTransformer })
   serviceRadiusKm: number;
 
+  // Last-known GPS position, pushed by the technician's own browser while an
+  // ASSIGNED/IN_PROGRESS job is active — powers the customer's live map.
+  @Column({ type: 'decimal', precision: 9, scale: 6, nullable: true, transformer: DecimalTransformer })
+  latitude: number | null;
+
+  @Column({ type: 'decimal', precision: 9, scale: 6, nullable: true, transformer: DecimalTransformer })
+  longitude: number | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  locationUpdatedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

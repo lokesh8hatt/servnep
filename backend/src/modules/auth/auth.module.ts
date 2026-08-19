@@ -36,6 +36,6 @@ import { User } from '../users/entities/user.entity';
       useClass: RolesGuard,
     },
   ],
-  exports: [AuthService, JwtModule],
+  exports: [AuthService, JwtModule, EmailService],
 })
 export class AuthModule {}

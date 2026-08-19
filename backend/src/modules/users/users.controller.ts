@@ -1,7 +1,8 @@
-import { Controller, Get, Put, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Put, Patch, Post, Body, UseGuards } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, UserPayload } from '../../common/decorators/user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, IsNumber, IsOptional } from 'class-validator';
 
@@ -39,6 +40,18 @@ class CreateAddressDto {
   lng?: number;
 }
 
+class UpdateLocationDto {
+  @ApiProperty({ example: 27.7196 })
+  @IsNotEmpty()
+  @IsNumber()
+  lat: number;
+
+  @ApiProperty({ example: 85.3240 })
+  @IsNotEmpty()
+  @IsNumber()
+  lng: number;
+}
+
 @ApiTags('Users & Profiles')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -74,5 +87,12 @@ export class UsersController {
       lat: dto.lat ?? 0,
       lng: dto.lng ?? 0,
     });
+  }
+
+  @Patch('me/location')
+  @Roles('TECHNICIAN')
+  @ApiOperation({ summary: "Push the technician's current GPS position, for the customer's live map" })
+  updateMyLocation(@CurrentUser() user: UserPayload, @Body() dto: UpdateLocationDto) {
+    return this.usersService.updateMyLocation(user.sub, dto.lat, dto.lng);
   }
 }
