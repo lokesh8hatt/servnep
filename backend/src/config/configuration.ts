@@ -57,12 +57,13 @@ export default () => {
       aakashToken: process.env.AAKASH_SMS_TOKEN || 'aakash-test-token',
     },
     email: {
-      // Real Gmail SMTP delivery for password-reset OTPs — requires a Gmail
-      // account with 2FA enabled and an App Password (Google Account >
-      // Security > 2-Step Verification > App passwords). A normal Gmail
-      // password will NOT work here; Google blocks plain-password SMTP.
-      gmailUser: process.env.GMAIL_USER || '',
-      gmailAppPassword: process.env.GMAIL_APP_PASSWORD || '',
+      // Sent via Brevo's HTTP API rather than raw SMTP — free hosting tiers
+      // (Render included, since Sept 2025) block outbound SMTP ports 25/465/
+      // 587 entirely, which no amount of port/timeout tuning gets around.
+      // An HTTP API call over 443 sidesteps that restriction completely.
+      // Get a free key at https://app.brevo.com (Settings > SMTP & API).
+      fromEmail: process.env.EMAIL_FROM || process.env.GMAIL_USER || '',
+      brevoApiKey: process.env.BREVO_API_KEY || '',
     },
   };
 };
