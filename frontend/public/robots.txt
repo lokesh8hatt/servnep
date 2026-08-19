@@ -5,6 +5,7 @@ User-agent: *
 Allow: /
 Disallow: /api/
 Disallow: /dashboard/
+Disallow: /payment/
 
 # Sitemap
 Sitemap: https://servenep.com/sitemap.xml

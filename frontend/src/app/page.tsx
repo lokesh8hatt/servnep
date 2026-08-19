@@ -123,7 +123,7 @@ export default function HomePage() {
             <span className="font-heading font-black text-xl tracking-wider">SN</span>
           </div>
           <div>
-            <h1 className="font-heading font-extrabold text-lg text-[#0B3C5D] dark:text-sky-300 tracking-tight">ServeNep</h1>
+            <p className="font-heading font-extrabold text-lg text-[#0B3C5D] dark:text-sky-300 tracking-tight">ServeNep</p>
             <p className="hidden sm:block text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-semibold">Home Marketplace</p>
           </div>
         </div>
@@ -208,9 +208,9 @@ export default function HomePage() {
           🇳🇵 Nepal's #1 On-Demand Home Services Platform
         </span>
 
-        <h2 className="font-heading text-4xl md:text-6xl font-black max-w-4xl leading-tight mb-6">
-          Your Home, Maintained by Verified Experts
-        </h2>
+        <h1 className="font-heading text-4xl md:text-6xl font-black max-w-4xl leading-tight mb-6">
+          Verified Plumbers, Electricians & Home Services in Kathmandu, Lalitpur & Bhaktapur
+        </h1>
         
         <p className="text-slate-300 text-lg md:text-xl max-w-2xl mb-12">
           From plumbing leaks to deep cleanings, book verified professionals in Kathmandu, Lalitpur, and Bhaktapur.

@@ -21,10 +21,65 @@ const themeInitScript = `
 })();
 `;
 
+const SITE_URL = 'https://servenep.com';
+const SITE_TITLE = 'ServeNep | Verified Home Services in Kathmandu, Lalitpur & Bhaktapur';
+const SITE_DESCRIPTION =
+  "Book verified plumbers, electricians, AC & appliance repair, deep cleaning, and pest control in Kathmandu, Lalitpur, and Bhaktapur. Upfront pricing, background-checked pros, 7-day service warranty.";
+
 export const metadata: Metadata = {
-  title: "ServeNep | On-Demand Home Services Platform in Nepal",
-  description: "Book verified plumbers, electricians, cleaners, and technicians in Kathmandu, Lalitpur, and Bhaktapur. 100% transparent pricing and satisfaction guarantee.",
-  keywords: "plumber Kathmandu, electrician Kathmandu, home cleaning Lalitpur, appliance repair Nepal, AC repair Bhaktapur, home services Nepal",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: SITE_TITLE,
+    // Pages that set their own title (e.g. "Book a Service | ServeNep")
+    // render through this template instead of replacing it outright.
+    template: '%s | ServeNep',
+  },
+  description: SITE_DESCRIPTION,
+  keywords: [
+    'home services Nepal',
+    'plumber Kathmandu',
+    'electrician Kathmandu',
+    'electrician Lalitpur',
+    'AC repair Kathmandu',
+    'appliance repair Nepal',
+    'home cleaning Lalitpur',
+    'pest control Bhaktapur',
+    'book technician online Nepal',
+    'on-demand home services Kathmandu valley',
+  ],
+  authors: [{ name: 'ServeNep' }],
+  alternates: {
+    canonical: '/',
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    url: SITE_URL,
+    siteName: 'ServeNep',
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: '#0B3C5D',
 };
 
 export default function RootLayout({
@@ -34,15 +89,27 @@ export default function RootLayout({
 }>) {
   const jsonLd = {
     '@context': 'https://schema.org',
-    '@type': 'LocalBusiness',
+    '@type': 'HomeAndConstructionBusiness',
+    '@id': 'https://servenep.com/#business',
     name: 'ServeNep',
     url: 'https://servenep.com',
     description: 'Nepal\'s leading on-demand home services marketplace. Book verified plumbers, electricians, cleaners, and technicians in Kathmandu Valley.',
-    areaServed: ['Kathmandu', 'Lalitpur', 'Bhaktapur'],
+    priceRange: 'Rs. 300 - Rs. 5000',
+    areaServed: [
+      { '@type': 'City', name: 'Kathmandu' },
+      { '@type': 'City', name: 'Lalitpur' },
+      { '@type': 'City', name: 'Bhaktapur' },
+    ],
     address: {
       '@type': 'PostalAddress',
       addressLocality: 'Kathmandu',
+      addressRegion: 'Bagmati',
       addressCountry: 'NP',
+    },
+    geo: {
+      '@type': 'GeoCoordinates',
+      latitude: 27.7172,
+      longitude: 85.3240,
     },
     contactPoint: {
       '@type': 'ContactPoint',
@@ -56,11 +123,11 @@ export default function RootLayout({
       '@type': 'OfferCatalog',
       name: 'Home Services',
       itemListElement: [
-        { '@type': 'Offer', name: 'Plumbing & Leak Repairs' },
-        { '@type': 'Offer', name: 'Electrical & Wiring' },
-        { '@type': 'Offer', name: 'AC & Appliance Repair' },
-        { '@type': 'Offer', name: 'Deep Home Cleaning' },
-        { '@type': 'Offer', name: 'Pest Control' },
+        { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Plumbing & Leak Repairs', areaServed: 'Kathmandu Valley' } },
+        { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Electrical & Wiring', areaServed: 'Kathmandu Valley' } },
+        { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'AC & Appliance Repair', areaServed: 'Kathmandu Valley' } },
+        { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Deep Home Cleaning', areaServed: 'Kathmandu Valley' } },
+        { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Pest Control', areaServed: 'Kathmandu Valley' } },
       ],
     },
   };
