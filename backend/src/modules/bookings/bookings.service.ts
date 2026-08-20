@@ -378,7 +378,7 @@ export class BookingsService {
   // to accept the same offer can never both succeed. The loser gets a
   // clear "already taken" error instead of silently overwriting the winner.
   async acceptOffer(offerId: string, technicianId: string): Promise<BookingDto> {
-    return this.bookingRepository.manager.transaction(async (manager) => {
+    const assignedBooking = await this.bookingRepository.manager.transaction(async (manager) => {
       const offerRepo = manager.getRepository(JobOffer);
       const offer = await offerRepo.findOne({ where: { id: offerId } });
       if (!offer || offer.technicianId !== technicianId) {
@@ -421,13 +421,24 @@ export class BookingsService {
         { status: JobOfferStatus.EXPIRED, respondedAt: new Date() },
       );
 
-      const full = await this.loadWithRelations(booking.id);
-      const technician = await this.userRepository.findOne({ where: { id: technicianId } });
-      if (full.customer && technician) {
-        await this.notifyTechnicianAssigned(full, full.customer, technician);
-      }
-      return this.toDto(full);
+      // Reload with relations through the SAME transactional manager, not
+      // this.loadWithRelations (which queries via the outer, non-transactional
+      // repository) — reading through a different connection here would see
+      // the pre-update row, since this transaction hasn't committed yet.
+      return manager.getRepository(Booking).findOne({
+        where: { id: booking.id },
+        relations: { customer: true, technician: true, address: true, serviceItem: true },
+      });
     });
+
+    if (!assignedBooking) throw new NotFoundException('Booking not found');
+
+    // Outside the transaction, now committed — no reason to hold the row
+    // lock open for an external network call to Brevo.
+    if (assignedBooking.customer && assignedBooking.technician) {
+      await this.notifyTechnicianAssigned(assignedBooking, assignedBooking.customer, assignedBooking.technician);
+    }
+    return this.toDto(assignedBooking);
   }
 
   async declineOffer(offerId: string, technicianId: string): Promise<void> {
