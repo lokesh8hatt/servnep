@@ -154,8 +154,8 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   @Post('esewa/initiate')
   @ApiOperation({ summary: '[Sandbox demo] Initiate eSewa payment signature parameter fields' })
-  initiateEsewa(@Body() dto: InitiatePaymentDto) {
-    return this.paymentsService.initiateEsewaPayment(dto.bookingId);
+  initiateEsewa(@CurrentUser() user: UserPayload, @Body() dto: InitiatePaymentDto) {
+    return this.paymentsService.initiateEsewaPayment(dto.bookingId, user);
   }
 
   @Public()
@@ -170,8 +170,8 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   @Post('khalti/initiate')
   @ApiOperation({ summary: '[Sandbox demo] Initiate Khalti payment redirection' })
-  initiateKhalti(@Body() dto: InitiatePaymentDto) {
-    return this.paymentsService.initiateKhaltiPayment(dto.bookingId);
+  initiateKhalti(@CurrentUser() user: UserPayload, @Body() dto: InitiatePaymentDto) {
+    return this.paymentsService.initiateKhaltiPayment(dto.bookingId, user);
   }
 
   @Public()

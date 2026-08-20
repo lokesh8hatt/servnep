@@ -2,12 +2,14 @@ import { Injectable, UnauthorizedException, BadRequestException, ForbiddenExcept
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, LessThan } from 'typeorm';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { User, UserRole } from '../users/entities/user.entity';
 import { EmailService } from './email.service';
 import { OtpCode, OtpPurpose } from './entities/otp-code.entity';
+import { BlacklistedToken } from './entities/blacklisted-token.entity';
+import { RateLimitCounter } from './entities/rate-limit-counter.entity';
 
 @Injectable()
 export class AuthService {
@@ -19,19 +21,30 @@ export class AuthService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(OtpCode)
     private readonly otpRepository: Repository<OtpCode>,
+    @InjectRepository(BlacklistedToken)
+    private readonly blacklistRepository: Repository<BlacklistedToken>,
+    @InjectRepository(RateLimitCounter)
+    private readonly rateLimitRepository: Repository<RateLimitCounter>,
   ) {}
 
-  // A fresh request replaces any code already outstanding for the same
-  // identifier+purpose, matching the old Map.set semantics (one active
-  // code at a time) — this is why delete happens before insert, not after.
+  // Real atomic upsert on the (identifier, purpose) unique index — replaces
+  // a delete-then-insert pair that had a race window where two concurrent
+  // requests could both insert a row.
   private async storeOtp(identifier: string, purpose: OtpPurpose, code: string, ttlMs: number): Promise<void> {
-    await this.otpRepository.delete({ identifier, purpose });
-    await this.otpRepository.save(this.otpRepository.create({ identifier, purpose, code, expiresAt: new Date(Date.now() + ttlMs) }));
+    await this.otpRepository.upsert(
+      { identifier, purpose, code, expiresAt: new Date(Date.now() + ttlMs) },
+      ['identifier', 'purpose'],
+    );
   }
 
   // Throws on a missing/expired/mismatched code; deletes it on success so it
   // can't be replayed. Shared by phone-login and password-reset verification.
+  // Rate-limited separately from the request side — a code being valid for
+  // 5-10 minutes is pointless protection if it can be brute-forced in that
+  // window, which a request-side-only limit does nothing to stop.
   private async consumeOtp(identifier: string, purpose: OtpPurpose, code: string): Promise<void> {
+    await this.checkRateLimit(`otp-verify:${purpose}`, identifier);
+
     const record = await this.otpRepository.findOne({ where: { identifier, purpose } });
     if (!record) {
       throw new UnauthorizedException('No verification code was requested for this. Please request a new one.');
@@ -46,26 +59,35 @@ export class AuthService {
     await this.otpRepository.delete({ id: record.id });
   }
 
-  // Rate limiting: Track OTP requests per phone number
-  private otpRateLimit = new Map<string, { count: number; windowStart: number }>();
-  private readonly OTP_MAX_REQUESTS = 3;
-  private readonly OTP_WINDOW_MS = 5 * 60 * 1000; // 5 minute window
+  // Rate limiting: persisted so a redeploy (deliberate, or Render's free-tier
+  // idle-restart) can't hand an attacker a fresh budget. Buckets are keyed by
+  // action so OTP requests and OTP verification attempts are throttled
+  // independently — a 6-digit code needs its *verify* attempts limited, not
+  // just how often a new one can be requested.
+  private readonly RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
+    'otp-request': { max: 3, windowMs: 5 * 60 * 1000 },
+    'reset-request': { max: 3, windowMs: 5 * 60 * 1000 },
+    'otp-verify:PHONE_LOGIN': { max: 5, windowMs: 5 * 60 * 1000 },
+    'otp-verify:PASSWORD_RESET': { max: 5, windowMs: 5 * 60 * 1000 },
+    login: { max: 10, windowMs: 5 * 60 * 1000 },
+  };
 
-  private checkRateLimit(phoneNumber: string): void {
-    const now = Date.now();
-    const record = this.otpRateLimit.get(phoneNumber);
+  private async checkRateLimit(action: string, identifier: string): Promise<void> {
+    const limit = this.RATE_LIMITS[action];
+    if (!limit) return;
 
-    if (record && now - record.windowStart < this.OTP_WINDOW_MS) {
-      if (record.count >= this.OTP_MAX_REQUESTS) {
-        const retryAfter = Math.ceil((this.OTP_WINDOW_MS - (now - record.windowStart)) / 1000 / 60);
-        throw new HttpException(
-          `Too many OTP requests. Please try again in ${retryAfter} minutes.`,
-          HttpStatus.TOO_MANY_REQUESTS,
-        );
+    const key = `${action}:${identifier}`;
+    const now = new Date();
+    const existing = await this.rateLimitRepository.findOne({ where: { key } });
+
+    if (existing && now.getTime() - existing.windowStart.getTime() < limit.windowMs) {
+      if (existing.count >= limit.max) {
+        const retryAfter = Math.ceil((limit.windowMs - (now.getTime() - existing.windowStart.getTime())) / 1000 / 60);
+        throw new HttpException(`Too many attempts. Please try again in ${retryAfter} minutes.`, HttpStatus.TOO_MANY_REQUESTS);
       }
-      record.count++;
+      await this.rateLimitRepository.update({ id: existing.id }, { count: existing.count + 1 });
     } else {
-      this.otpRateLimit.set(phoneNumber, { count: 1, windowStart: now });
+      await this.rateLimitRepository.upsert({ key, count: 1, windowStart: now }, ['key']);
     }
   }
 
@@ -74,8 +96,7 @@ export class AuthService {
       throw new BadRequestException('Invalid Nepalese phone number');
     }
 
-    // Check rate limit before generating OTP
-    this.checkRateLimit(phoneNumber);
+    await this.checkRateLimit('otp-request', phoneNumber);
 
     // Generate a real 6-digit OTP
     const otpCode = crypto.randomInt(100000, 999999).toString();
@@ -141,6 +162,8 @@ export class AuthService {
   }
 
   async loginWithEmail(email: string, password: string): Promise<ReturnType<AuthService['issueSession']>> {
+    await this.checkRateLimit('login', email);
+
     // passwordHash has select:false on the entity, so it must be explicitly
     // requested — otherwise it's silently excluded from the query result.
     const user = await this.userRepository
@@ -164,11 +187,17 @@ export class AuthService {
     const user = await this.userRepository.findOne({ where: { email } });
     const genericMessage = { message: 'If an account exists for that email, a verification code has been sent.' };
 
-    // Don't leak whether the email exists — always return the same message,
-    // but only actually send (and rate-limit) when there's a real account.
-    if (!user) return genericMessage;
+    // Don't leak whether the email exists — always return the same message.
+    // The real work below (rate-limit write, OTP upsert, an outbound HTTPS
+    // call to Brevo) takes measurably longer than this single indexed
+    // SELECT, so a fixed dummy delay on the "no such user" path closes that
+    // timing side-channel rather than just matching the response body.
+    if (!user) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return genericMessage;
+    }
 
-    this.checkRateLimit(`reset:${email}`);
+    await this.checkRateLimit('reset-request', email);
 
     const otpCode = crypto.randomInt(100000, 999999).toString();
     await this.storeOtp(email, OtpPurpose.PASSWORD_RESET, otpCode, 10 * 60 * 1000);
@@ -223,23 +252,25 @@ export class AuthService {
 
   /**
    * One-click login with no phone number or OTP at all, for demo/testing.
-   * Blocked in production unless DEMO_MODE=true is explicitly set — that
-   * flag exists for deployments that are themselves just a public demo
-   * (no real user data, no real SMS gateway to bypass); a real production
-   * deployment should never set it.
+   * ADMIN/DISPATCHER are blocked unconditionally, even under DEMO_MODE —
+   * granting staff-level control over payment verification and payouts to
+   * anyone on the internet with no credentials is a real risk regardless of
+   * "it's just a demo" framing. CUSTOMER/TECHNICIAN demo access stays
+   * available under DEMO_MODE, gated by the same production check as before.
    */
   async devLogin(role: UserRole): Promise<ReturnType<AuthService['issueSession']>> {
+    if (role === UserRole.ADMIN || role === UserRole.DISPATCHER) {
+      throw new ForbiddenException('Instant demo login is not available for staff roles');
+    }
     if (process.env.NODE_ENV === 'production' && process.env.DEMO_MODE !== 'true') {
       throw new ForbiddenException('Instant demo login is not available in production');
     }
 
     let user = await this.userRepository.findOne({ where: { role } });
     if (!user) {
-      const namesByRole: Record<UserRole, string> = {
+      const namesByRole: Partial<Record<UserRole, string>> = {
         [UserRole.CUSTOMER]: 'Demo Customer',
         [UserRole.TECHNICIAN]: 'Demo Technician',
-        [UserRole.ADMIN]: 'Demo Admin',
-        [UserRole.DISPATCHER]: 'Demo Dispatcher',
       };
       user = await this.userRepository.save(
         this.userRepository.create({
@@ -254,9 +285,14 @@ export class AuthService {
   }
 
   private issueSession(user: User) {
-    const payload = { sub: user.id, phone: user.phoneNumber, role: user.role, name: user.fullName };
-    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
-    const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
+    // type: 'access' vs 'refresh' distinguishes the two so a refresh token
+    // (long-lived, minimal payload) can't be used directly against
+    // resource endpoints the way it could before — JwtAuthGuard rejects
+    // anything that isn't type: 'access'.
+    const accessPayload = { sub: user.id, phone: user.phoneNumber, role: user.role, name: user.fullName, type: 'access' };
+    const refreshPayload = { sub: user.id, type: 'refresh' };
+    const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '1h' });
+    const refreshToken = this.jwtService.sign(refreshPayload, { expiresIn: '7d' });
 
     return {
       accessToken,
@@ -265,32 +301,57 @@ export class AuthService {
     };
   }
 
-  // Token blacklist for server-side session invalidation
-  private tokenBlacklist = new Set<string>();
+  // Exchanges a valid, non-blacklisted refresh token for a fresh access
+  // token — the only legitimate use of a refresh token; JwtAuthGuard refuses
+  // to accept type: 'refresh' tokens anywhere else.
+  async refreshSession(refreshToken: string): Promise<{ accessToken: string }> {
+    let payload: any;
+    try {
+      payload = await this.jwtService.verifyAsync(refreshToken, { secret: this.configService.get<string>('jwt.secret') });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    if (payload.type !== 'refresh') {
+      throw new UnauthorizedException('Not a refresh token');
+    }
+    if (await this.isTokenBlacklisted(refreshToken)) {
+      throw new UnauthorizedException('This session has been logged out');
+    }
+
+    const user = await this.userRepository.findOne({ where: { id: payload.sub } });
+    if (!user) {
+      throw new UnauthorizedException('Account no longer exists');
+    }
+
+    const accessPayload = { sub: user.id, phone: user.phoneNumber, role: user.role, name: user.fullName, type: 'access' };
+    return { accessToken: this.jwtService.sign(accessPayload, { expiresIn: '1h' }) };
+  }
 
   async logout(token: string): Promise<{ message: string }> {
+    let payload: any;
     try {
-      // Verify the token to ensure it's valid before blacklisting
-      const payload = await this.jwtService.verifyAsync(token, {
+      payload = await this.jwtService.verifyAsync(token, {
         secret: this.configService.get<string>('jwt.secret'),
       });
-
-      // Add token to blacklist until it would have expired naturally
-      const expiresIn = payload.exp ? payload.exp * 1000 - Date.now() : 3600000;
-      this.tokenBlacklist.add(token);
-
-      // Schedule removal from blacklist after token expiration
-      setTimeout(() => {
-        this.tokenBlacklist.delete(token);
-      }, Math.max(expiresIn, 60000)); // minimum 1 minute cleanup
-
-      return { message: 'Successfully logged out. Token invalidated.' };
     } catch {
       throw new UnauthorizedException('Invalid token');
     }
+
+    const expiresAt = payload.exp ? new Date(payload.exp * 1000) : new Date(Date.now() + 3600000);
+    await this.blacklistRepository.save(this.blacklistRepository.create({ token, expiresAt }));
+
+    // Opportunistic cleanup of long-expired rows — piggybacking on logout
+    // traffic rather than running a separate scheduled job.
+    this.blacklistRepository.delete({ expiresAt: LessThan(new Date()) }).catch(() => {});
+
+    return { message: 'Successfully logged out. Token invalidated.' };
   }
 
-  isTokenBlacklisted(token: string): boolean {
-    return this.tokenBlacklist.has(token);
+  // Checked by JwtAuthGuard on every request — a DB read, not the
+  // in-memory Set lookup this used to be, so "logged out" now actually
+  // survives a redeploy and applies across every server instance.
+  async isTokenBlacklisted(token: string): Promise<boolean> {
+    const found = await this.blacklistRepository.findOne({ where: { token } });
+    return !!found;
   }
 }

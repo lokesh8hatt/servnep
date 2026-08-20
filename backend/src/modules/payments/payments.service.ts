@@ -1,10 +1,10 @@
-import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, NotFoundException, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Not } from 'typeorm';
 import * as crypto from 'crypto';
 import { BookingsService } from '../bookings/bookings.service';
-import { PaymentStatus } from '../bookings/entities/booking.entity';
+import { PaymentStatus, PaymentMethod } from '../bookings/entities/booking.entity';
 import { Payment, PaymentGateway, PaymentRecordStatus } from './entities/payment.entity';
 
 // Real money, no merchant API — customers send eSewa/Khalti transfers to
@@ -28,28 +28,57 @@ export class PaymentsService {
     if (booking.customerId !== customerId) {
       throw new ForbiddenException('You can only submit payment for your own booking');
     }
+    // A CASH booking is paid in person — there is nothing to claim through
+    // this digital flow. Without this check, a CASH booking's "payment"
+    // could be verified through the eSewa/Khalti manual-claim path, which
+    // also auto-settles commission — completely bypassing the separate
+    // commission-remittance flow CASH jobs are actually supposed to go
+    // through (see BookingsService.claimCommissionRemittance).
+    if (booking.paymentMethod === PaymentMethod.CASH) {
+      throw new BadRequestException('This is a cash booking — pay the technician directly, there is nothing to claim here');
+    }
     if (booking.paymentStatus === PaymentStatus.PAID) {
       throw new BadRequestException('This booking is already paid');
     }
-    if (!reference || reference.trim().length < 4) {
+    const trimmedReference = (reference || '').trim();
+    if (trimmedReference.length < 4) {
       throw new BadRequestException('Enter the eSewa/Khalti transaction ID from your payment so it can be verified');
     }
 
-    let payment = await this.paymentRepository.findOne({ where: { bookingId } });
-    if (!payment) {
-      payment = this.paymentRepository.create({
-        bookingId,
-        gateway: booking.paymentMethod === 'KHALTI' ? PaymentGateway.KHALTI : PaymentGateway.ESEWA,
-        transactionUuid: null,
-        status: PaymentRecordStatus.INITIATED,
-        amount: booking.totalAmount,
-      });
+    // The same transaction ID can't be reused as "proof" across different
+    // bookings — otherwise one real transfer could be claimed as payment
+    // for many bookings.
+    const reusedElsewhere = await this.paymentRepository.findOne({
+      where: { customerReference: trimmedReference, bookingId: Not(bookingId) },
+    });
+    if (reusedElsewhere) {
+      throw new BadRequestException('This transaction ID has already been used as proof on a different booking');
     }
-    payment.customerReference = reference.trim();
-    await this.paymentRepository.save(payment);
 
-    await this.bookingsService.updatePaymentStatus(bookingId, PaymentStatus.PENDING_VERIFICATION);
-    return { status: PaymentStatus.PENDING_VERIFICATION };
+    return this.paymentRepository.manager.transaction(async (manager) => {
+      // Advisory lock scoped to this booking for the transaction's
+      // duration — without it, two concurrent claims (double-click, retry
+      // after a slow network) can both pass the find-then-create check
+      // above and both insert a Payment row for the same booking.
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [bookingId]);
+
+      const paymentRepo = manager.getRepository(Payment);
+      let payment = await paymentRepo.findOne({ where: { bookingId } });
+      if (!payment) {
+        payment = paymentRepo.create({
+          bookingId,
+          gateway: booking.paymentMethod === 'KHALTI' ? PaymentGateway.KHALTI : PaymentGateway.ESEWA,
+          transactionUuid: null,
+          status: PaymentRecordStatus.INITIATED,
+          amount: booking.totalAmount,
+        });
+      }
+      payment.customerReference = trimmedReference;
+      await paymentRepo.save(payment);
+
+      await this.bookingsService.updatePaymentStatus(bookingId, PaymentStatus.PENDING_VERIFICATION);
+      return { status: PaymentStatus.PENDING_VERIFICATION };
+    });
   }
 
   async getPaymentByBooking(bookingId: string): Promise<Payment | null> {
@@ -67,6 +96,18 @@ export class PaymentsService {
     const payment = await this.paymentRepository.findOne({ where: { bookingId } });
     if (!payment) {
       throw new NotFoundException('No payment claim found for this booking');
+    }
+    if (payment.status !== PaymentRecordStatus.INITIATED) {
+      throw new ConflictException('This payment claim has already been processed');
+    }
+
+    // Defense in depth — claimManualPayment already refuses to create a
+    // claim for a CASH booking, but this guards any pre-existing/legacy
+    // claim from ever auto-settling commission for a job that was never
+    // actually paid digitally.
+    const booking = await this.bookingsService.findById(bookingId);
+    if (booking.paymentMethod === PaymentMethod.CASH) {
+      throw new BadRequestException('This is a cash booking — use the commission remittance flow instead');
     }
 
     payment.status = approved ? PaymentRecordStatus.COMPLETED : PaymentRecordStatus.FAILED;
@@ -112,8 +153,16 @@ export class PaymentsService {
 
   // ─── eSewa sandbox integration (technical demo — test money only) ───────
 
-  async initiateEsewaPayment(bookingId: string) {
+  async initiateEsewaPayment(bookingId: string, requester: { sub: string; role: string }) {
     const booking = await this.bookingsService.findById(bookingId);
+    // Without this, any authenticated user could initiate — and, since the
+    // signing key is eSewa's own published sandbox secret, self-sign — a
+    // "paid" callback for someone else's booking.
+    const isOwner = booking.customerId === requester.sub;
+    const isStaff = requester.role === 'ADMIN' || requester.role === 'DISPATCHER';
+    if (!isOwner && !isStaff) {
+      throw new ForbiddenException('You can only pay for your own booking');
+    }
 
     // No local fallback here on purpose — configuration.ts is the one place
     // this default lives. A second hardcoded copy here previously drifted
@@ -169,7 +218,7 @@ export class PaymentsService {
       throw new BadRequestException('Malformed eSewa response payload');
     }
 
-    const { transaction_uuid, status, signature, signed_field_names } = responseData;
+    const { transaction_uuid, status, signature, signed_field_names, total_amount } = responseData;
     if (!transaction_uuid || !signature || !signed_field_names) {
       throw new BadRequestException('Incomplete eSewa response payload');
     }
@@ -177,6 +226,22 @@ export class PaymentsService {
     const payment = await this.paymentRepository.findOne({ where: { transactionUuid: transaction_uuid } });
     if (!payment) {
       throw new NotFoundException('No matching payment record for this transaction');
+    }
+    if (payment.status !== PaymentRecordStatus.INITIATED) {
+      throw new ConflictException('This payment has already been processed');
+    }
+
+    // The signature only proves the payload wasn't tampered with in
+    // transit — it says nothing about whether the amount inside it matches
+    // what this booking actually costs. Without this check, a validly
+    // self-signed callback (the eSewa sandbox key is public) for the
+    // correct transaction_uuid could still claim any total_amount at all.
+    const callbackAmount = parseFloat(total_amount);
+    if (!Number.isFinite(callbackAmount) || Math.abs(callbackAmount - payment.amount) > 0.01) {
+      payment.status = PaymentRecordStatus.FAILED;
+      payment.rawResponse = responseData;
+      await this.paymentRepository.save(payment);
+      throw new BadRequestException('Callback amount does not match the expected payment amount');
     }
 
     // Recompute the signature ourselves from the fields eSewa says it signed,
@@ -212,8 +277,13 @@ export class PaymentsService {
 
   // ─── Khalti sandbox integration (technical demo — test money only) ──────
 
-  async initiateKhaltiPayment(bookingId: string) {
+  async initiateKhaltiPayment(bookingId: string, requester: { sub: string; role: string }) {
     const booking = await this.bookingsService.findById(bookingId);
+    const isOwner = booking.customerId === requester.sub;
+    const isStaff = requester.role === 'ADMIN' || requester.role === 'DISPATCHER';
+    if (!isOwner && !isStaff) {
+      throw new ForbiddenException('You can only pay for your own booking');
+    }
 
     const secretKey = this.configService.get<string>('khalti.secretKey');
     if (!secretKey) {

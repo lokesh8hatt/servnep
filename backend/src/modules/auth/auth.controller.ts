@@ -2,8 +2,13 @@ import { Controller, Post, Body, Headers, HttpCode } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { ApiTags, ApiOperation, ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsIn, IsEmail, Length, MinLength } from 'class-validator';
+import { IsNotEmpty, IsString, IsIn, IsEmail, Length, MinLength, MaxLength, Matches } from 'class-validator';
 import { UserRole } from '../users/entities/user.entity';
+
+// Digits only — phoneNumber ends up stored on User and later rendered as
+// customerPhone in the booking invoice, so this also closes off one of the
+// inputs an attacker could otherwise use to inject markup there.
+const PHONE_PATTERN = /^[0-9]+$/;
 
 class RegisterDto {
   @ApiProperty({ example: 'sabin@gmail.com' })
@@ -19,7 +24,15 @@ class RegisterDto {
   @ApiProperty({ example: 'Sabin Shrestha' })
   @IsNotEmpty()
   @IsString()
+  @MaxLength(100)
   fullName: string;
+}
+
+class RefreshDto {
+  @ApiProperty({ example: 'eyJhbGciOi...' })
+  @IsNotEmpty()
+  @IsString()
+  refreshToken: string;
 }
 
 class LoginEmailDto {
@@ -63,6 +76,7 @@ class RequestOtpDto {
   @IsNotEmpty()
   @IsString()
   @Length(10, 15)
+  @Matches(PHONE_PATTERN, { message: 'Phone number must contain digits only' })
   phoneNumber: string;
 }
 
@@ -70,6 +84,8 @@ class VerifyOtpDto {
   @ApiProperty({ example: '9841234567', description: 'Phone number' })
   @IsNotEmpty()
   @IsString()
+  @Length(10, 15)
+  @Matches(PHONE_PATTERN, { message: 'Phone number must contain digits only' })
   phoneNumber: string;
 
   @ApiProperty({ example: '123456', description: '6-digit OTP code' })
@@ -139,6 +155,13 @@ export class AuthController {
   @ApiOperation({ summary: 'Instant one-click login with no OTP, for local demo/testing only (403 in production)' })
   devLogin(@Body() dto: DevLoginDto) {
     return this.authService.devLogin(dto.role);
+  }
+
+  @Public()
+  @Post('refresh')
+  @ApiOperation({ summary: 'Exchange a refresh token for a fresh access token' })
+  refresh(@Body() dto: RefreshDto) {
+    return this.authService.refreshSession(dto.refreshToken);
   }
 
   @Post('logout')

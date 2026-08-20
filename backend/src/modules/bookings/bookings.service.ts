@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, IsNull } from 'typeorm';
+import { Repository, In, IsNull, Not } from 'typeorm';
 import { ServicesService } from '../services/services.service';
 import { UsersService } from '../users/users.service';
 import { EmailService } from '../auth/email.service';
@@ -66,6 +66,33 @@ export const COMMISSION_RATE = 0.15;
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Explicit state machine — without this, any assigned technician or staff
+// member could move a booking to any status at all, including reverting a
+// COMPLETED job back to ASSIGNED/IN_PROGRESS to request a new price
+// revision and re-complete it, silently overwriting the commission/payout
+// amounts that were already locked in (and possibly already paid out).
+const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
+  [BookingStatus.PENDING]: [BookingStatus.ASSIGNED, BookingStatus.CANCELLED],
+  [BookingStatus.ASSIGNED]: [BookingStatus.IN_PROGRESS, BookingStatus.CANCELLED],
+  [BookingStatus.IN_PROGRESS]: [BookingStatus.COMPLETED, BookingStatus.CANCELLED],
+  [BookingStatus.COMPLETED]: [],
+  [BookingStatus.CANCELLED]: [],
+};
+
+// A technician can request at most this many revisions on a single
+// booking — otherwise reject→resubmit could cycle indefinitely as a
+// pressure tactic against the customer.
+const MAX_PRICE_REVISIONS_PER_BOOKING = 3;
 
 @Injectable()
 export class BookingsService {
@@ -225,6 +252,9 @@ export class BookingsService {
           booking.bookingNumber = this.generateBookingNumber();
           continue;
         }
+        if (err?.code === '23505') {
+          throw new BadRequestException('Could not generate a unique booking number — please try again.');
+        }
         throw err;
       }
     }
@@ -312,7 +342,7 @@ export class BookingsService {
 <html>
 <head>
 <meta charset="utf-8" />
-<title>Invoice ${dto.bookingNumber} — ServeNep</title>
+<title>Invoice ${escapeHtml(dto.bookingNumber)} — ServeNep</title>
 <style>
   * { box-sizing: border-box; }
   body { font-family: 'Segoe UI', Arial, sans-serif; background: #f8fafc; color: #1e293b; margin: 0; padding: 40px 20px; }
@@ -343,21 +373,21 @@ export class BookingsService {
     </div>
     <p class="subtitle">On-demand home services marketplace — Kathmandu Valley</p>
 
-    <h1>Invoice ${dto.bookingNumber}</h1>
+    <h1>Invoice ${escapeHtml(dto.bookingNumber)}</h1>
     <div class="meta">
-      <span>Issued ${issuedAt}</span>
-      <span class="status">${dto.status.replace('_', ' ')}</span>
+      <span>Issued ${escapeHtml(issuedAt)}</span>
+      <span class="status">${escapeHtml(dto.status.replace('_', ' '))}</span>
     </div>
 
     <table>
-      <tr><td class="label">Customer</td><td class="value">${dto.customerName}</td></tr>
-      <tr><td class="label">Phone</td><td class="value">${dto.customerPhone}</td></tr>
-      <tr><td class="label">Service</td><td class="value">${dto.itemName}</td></tr>
-      <tr><td class="label">Technician</td><td class="value">${dto.technicianName ?? 'Not yet assigned'}</td></tr>
-      <tr><td class="label">Address</td><td class="value">${dto.addressText}</td></tr>
-      <tr><td class="label">Scheduled</td><td class="value">${dto.scheduledDate}, ${dto.scheduledTimeSlot}</td></tr>
-      <tr><td class="label">Payment Method</td><td class="value">${dto.paymentMethod}</td></tr>
-      <tr><td class="label">Payment Status</td><td class="value">${dto.paymentStatus}</td></tr>
+      <tr><td class="label">Customer</td><td class="value">${escapeHtml(dto.customerName)}</td></tr>
+      <tr><td class="label">Phone</td><td class="value">${escapeHtml(dto.customerPhone)}</td></tr>
+      <tr><td class="label">Service</td><td class="value">${escapeHtml(dto.itemName)}</td></tr>
+      <tr><td class="label">Technician</td><td class="value">${dto.technicianName ? escapeHtml(dto.technicianName) : 'Not yet assigned'}</td></tr>
+      <tr><td class="label">Address</td><td class="value">${escapeHtml(dto.addressText)}</td></tr>
+      <tr><td class="label">Scheduled</td><td class="value">${escapeHtml(dto.scheduledDate)}, ${escapeHtml(dto.scheduledTimeSlot)}</td></tr>
+      <tr><td class="label">Payment Method</td><td class="value">${escapeHtml(dto.paymentMethod)}</td></tr>
+      <tr><td class="label">Payment Status</td><td class="value">${escapeHtml(dto.paymentStatus)}</td></tr>
     </table>
 
     <table>
@@ -396,6 +426,10 @@ export class BookingsService {
     const isStaff = requester.role === 'ADMIN' || requester.role === 'DISPATCHER';
     if (!isAssignedTechnician && !isStaff) {
       throw new ForbiddenException('You are not assigned to this booking');
+    }
+
+    if (!ALLOWED_STATUS_TRANSITIONS[booking.status].includes(status)) {
+      throw new BadRequestException(`Cannot move a ${booking.status} booking to ${status}`);
     }
 
     if (status === BookingStatus.COMPLETED) {
@@ -438,13 +472,6 @@ export class BookingsService {
     requestedAmount: number,
     reason: string,
   ): Promise<PriceRevisionDto> {
-    const booking = await this.loadWithRelations(bookingId);
-    if (booking.technicianId !== technicianId) {
-      throw new ForbiddenException('You are not assigned to this booking');
-    }
-    if (booking.status === BookingStatus.COMPLETED || booking.status === BookingStatus.CANCELLED) {
-      throw new BadRequestException('This booking is already finished');
-    }
     if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
       throw new BadRequestException('Enter a valid revised amount');
     }
@@ -452,23 +479,59 @@ export class BookingsService {
       throw new BadRequestException('Explain why the price is changing — this is what the customer sees before approving');
     }
 
-    const existingPending = await this.priceRevisionRepository.findOne({
-      where: { bookingId, status: RevisionStatus.PENDING },
-    });
-    if (existingPending) {
-      throw new BadRequestException('A price change is already awaiting customer approval for this booking');
-    }
+    // A row lock on the booking for the duration of this transaction is
+    // what actually prevents two concurrent requests (e.g. two open tabs)
+    // from both passing the "no pending revision" check and both inserting
+    // a PENDING row — the second call blocks here until the first commits.
+    return this.bookingRepository.manager.transaction(async (manager) => {
+      const booking = await manager
+        .createQueryBuilder(Booking, 'booking')
+        .setLock('pessimistic_write')
+        .where('booking.id = :bookingId', { bookingId })
+        .getOne();
+      if (!booking) throw new NotFoundException('Booking not found');
+      if (booking.technicianId !== technicianId) {
+        throw new ForbiddenException('You are not assigned to this booking');
+      }
+      if (booking.status === BookingStatus.COMPLETED || booking.status === BookingStatus.CANCELLED) {
+        throw new BadRequestException('This booking is already finished');
+      }
 
-    const revision = await this.priceRevisionRepository.save(
-      this.priceRevisionRepository.create({
-        bookingId,
-        previousAmount: booking.baseAmount,
-        requestedAmount: round2(requestedAmount),
-        reason: reason.trim(),
-        status: RevisionStatus.PENDING,
-      }),
-    );
-    return this.toPriceRevisionDto(revision);
+      // A generous but bounded range — real repair jobs can legitimately
+      // turn out much cheaper or more expensive than first estimated, but
+      // an unbounded revision is exactly the kind of number a customer
+      // might approve without scrutiny (or a fat-fingered/malicious one).
+      const minAllowed = booking.baseAmount * 0.1;
+      const maxAllowed = Math.min(booking.baseAmount * 5, 500000);
+      if (requestedAmount < minAllowed || requestedAmount > maxAllowed) {
+        throw new BadRequestException(
+          `Revised amount must be between Rs. ${round2(minAllowed)} and Rs. ${round2(maxAllowed)} for this booking`,
+        );
+      }
+
+      const revisionRepo = manager.getRepository(PriceRevision);
+
+      const existingPending = await revisionRepo.findOne({ where: { bookingId, status: RevisionStatus.PENDING } });
+      if (existingPending) {
+        throw new BadRequestException('A price change is already awaiting customer approval for this booking');
+      }
+
+      const totalRequested = await revisionRepo.count({ where: { bookingId } });
+      if (totalRequested >= MAX_PRICE_REVISIONS_PER_BOOKING) {
+        throw new BadRequestException('Too many price changes requested for this booking — contact support to proceed.');
+      }
+
+      const revision = await revisionRepo.save(
+        revisionRepo.create({
+          bookingId,
+          previousAmount: booking.baseAmount,
+          requestedAmount: round2(requestedAmount),
+          reason: reason.trim(),
+          status: RevisionStatus.PENDING,
+        }),
+      );
+      return this.toPriceRevisionDto(revision);
+    });
   }
 
   async getPriceRevisions(bookingId: string, requester: { sub: string; role: string }): Promise<PriceRevisionDto[]> {
@@ -531,16 +594,29 @@ export class BookingsService {
     if (booking.commissionSettled) {
       throw new BadRequestException('Commission for this booking is already settled');
     }
-    if (!reference || reference.trim().length < 4) {
+    const trimmedReference = (reference || '').trim();
+    if (trimmedReference.length < 4) {
       throw new BadRequestException('Enter the transaction ID from your commission payment so it can be verified');
     }
 
-    booking.commissionReference = reference.trim();
+    // The same transaction ID can't back "proof" of commission payment on
+    // more than one booking.
+    const reusedElsewhere = await this.bookingRepository.findOne({
+      where: { commissionReference: trimmedReference, id: Not(bookingId) },
+    });
+    if (reusedElsewhere) {
+      throw new BadRequestException('This transaction ID has already been used as proof on a different booking');
+    }
+
+    booking.commissionReference = trimmedReference;
     await this.bookingRepository.save(booking);
   }
 
   async verifyCommissionRemittance(bookingId: string, approved: boolean): Promise<void> {
     const booking = await this.loadWithRelations(bookingId);
+    if (booking.commissionSettled) {
+      throw new BadRequestException('Commission for this booking is already settled');
+    }
     if (!booking.commissionReference) {
       throw new BadRequestException('No commission remittance claim found for this booking');
     }
@@ -617,25 +693,43 @@ export class BookingsService {
   // Records that a technician has actually been paid (outside the app) and
   // closes out every currently-eligible booking against that payout, so
   // they can never be double-counted in a future payout.
+  //
+  // Runs inside a transaction with a row lock on the eligible bookings —
+  // without it, two concurrent payout requests (a double-click, or two
+  // admins) can both read the same "unpaid" set before either writes
+  // payoutId, and both create a TechnicianPayout record for the same
+  // money. The lock makes the second call wait for the first to commit,
+  // then see nothing left to pay out.
   async createPayout(technicianId: string, notes?: string): Promise<{ id: string; totalAmount: number; bookingCount: number }> {
-    const unpaid = await this.findUnpaidEarnings(technicianId);
-    if (unpaid.length === 0) {
-      throw new BadRequestException('This technician has no pending earnings to pay out');
-    }
+    return this.bookingRepository.manager.transaction(async (manager) => {
+      const unpaid = await manager
+        .createQueryBuilder(Booking, 'booking')
+        .setLock('pessimistic_write')
+        .where('booking.technicianId = :technicianId', { technicianId })
+        .andWhere('booking.status = :status', { status: BookingStatus.COMPLETED })
+        .andWhere('booking.commissionSettled = true')
+        .andWhere('booking.payoutId IS NULL')
+        .getMany();
 
-    const totalAmount = round2(unpaid.reduce((sum, b) => sum + (b.technicianPayoutAmount ?? 0), 0));
-    const payout = await this.technicianPayoutRepository.save(
-      this.technicianPayoutRepository.create({
-        technicianId,
-        totalAmount,
-        bookingCount: unpaid.length,
-        notes: notes?.trim() || null,
-      }),
-    );
+      if (unpaid.length === 0) {
+        throw new BadRequestException('This technician has no pending earnings to pay out');
+      }
 
-    await this.bookingRepository.update({ id: In(unpaid.map((b) => b.id)) }, { payoutId: payout.id });
+      const totalAmount = round2(unpaid.reduce((sum, b) => sum + (b.technicianPayoutAmount ?? 0), 0));
+      const payoutRepo = manager.getRepository(TechnicianPayout);
+      const payout = await payoutRepo.save(
+        payoutRepo.create({
+          technicianId,
+          totalAmount,
+          bookingCount: unpaid.length,
+          notes: notes?.trim() || null,
+        }),
+      );
 
-    return { id: payout.id, totalAmount: payout.totalAmount, bookingCount: payout.bookingCount };
+      await manager.getRepository(Booking).update({ id: In(unpaid.map((b) => b.id)) }, { payoutId: payout.id });
+
+      return { id: payout.id, totalAmount: payout.totalAmount, bookingCount: payout.bookingCount };
+    });
   }
 
   async updatePaymentStatus(id: string, paymentStatus: PaymentStatus): Promise<BookingDto> {
@@ -647,6 +741,9 @@ export class BookingsService {
 
   async assignTechnician(id: string, technicianId: string): Promise<BookingDto> {
     const booking = await this.loadWithRelations(id);
+    if (booking.status === BookingStatus.COMPLETED || booking.status === BookingStatus.CANCELLED) {
+      throw new BadRequestException(`Cannot assign a technician to a ${booking.status} booking`);
+    }
     const technician = await this.userRepository.findOne({
       where: { id: technicianId, role: UserRole.TECHNICIAN },
     });

@@ -28,19 +28,27 @@ async function bootstrap() {
     }),
   );
 
-  const config = new DocumentBuilder()
-    .setTitle('ServeNep API')
-    .setDescription('The ServeNep Home Services Marketplace REST API documentation')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  // Publicly listing every endpoint/DTO shape is a reasonable convenience
+  // in dev, but pure recon value in production — gated behind an explicit
+  // opt-in flag rather than on by default.
+  const docsEnabled = process.env.NODE_ENV !== 'production' || process.env.ENABLE_DOCS === 'true';
+  if (docsEnabled) {
+    const config = new DocumentBuilder()
+      .setTitle('ServeNep API')
+      .setDescription('The ServeNep Home Services Marketplace REST API documentation')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   const port = configService.get<number>('port', 5000);
   await app.listen(port);
   console.log(`ServeNep Backend running on: http://localhost:${port}/api/v1`);
-  console.log(`Swagger Docs available on: http://localhost:${port}/api/docs`);
+  if (docsEnabled) {
+    console.log(`Swagger Docs available on: http://localhost:${port}/api/docs`);
+  }
 }
 bootstrap();

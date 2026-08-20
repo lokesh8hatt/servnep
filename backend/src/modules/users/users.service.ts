@@ -66,7 +66,20 @@ export class UsersService {
     userId: string,
     address: { label: string; street: string; city: string; lat: number; lng: number },
   ): Promise<Address> {
-    return this.addressRepository.save(this.addressRepository.create({ userId, ...address }));
+    // Same HTML-stripping as updateProfile — these fields are rendered
+    // unescaped into the booking invoice, so this closes off that input
+    // source rather than relying solely on escaping at render time.
+    const strip = (value: string, max: number) => (value || '').replace(/<[^>]*>/g, '').trim().slice(0, max);
+    return this.addressRepository.save(
+      this.addressRepository.create({
+        userId,
+        label: strip(address.label, 50),
+        street: strip(address.street, 200),
+        city: strip(address.city, 50),
+        lat: address.lat,
+        lng: address.lng,
+      }),
+    );
   }
 
   async updateMyLocation(userId: string, lat: number, lng: number): Promise<{ message: string }> {

@@ -10,10 +10,12 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { User } from '../users/entities/user.entity';
 import { OtpCode } from './entities/otp-code.entity';
+import { BlacklistedToken } from './entities/blacklisted-token.entity';
+import { RateLimitCounter } from './entities/rate-limit-counter.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, OtpCode]),
+    TypeOrmModule.forFeature([User, OtpCode, BlacklistedToken, RateLimitCounter]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
