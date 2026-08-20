@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { fetchApi } from '@/lib/api';
 import { AuthGuard } from '@/context/AuthGuard';
 import { useAuth } from '@/context/AuthContext';
-import { User, CheckCircle, Navigation, Phone, MapPin, DollarSign, Star, RefreshCw, XCircle, LogOut, Clock, Edit3, Send } from 'lucide-react';
+import { User, CheckCircle, Navigation, Phone, MapPin, DollarSign, Star, RefreshCw, XCircle, LogOut, Clock, Edit3, Send, Zap, Settings, Check } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SoundToggle } from '@/components/SoundToggle';
 import { useToast } from '@/context/ToastContext';
@@ -13,6 +13,10 @@ import { useToast } from '@/context/ToastContext';
 // Only send a location update this often — watchPosition can fire far more
 // frequently than that, and there's no need to hammer the API every time.
 const LOCATION_SEND_INTERVAL_MS = 15000;
+
+// Mirrors the real service catalog names on the backend — a technician's
+// specialties gate which job broadcasts ever reach them at all.
+const SERVICE_NAMES = ['Plumbing', 'Electrical', 'AC & Appliances', 'Cleaning & Pest Control', 'Painting'];
 
 export default function TechnicianDashboard() {
   const { user, logout } = useAuth();
@@ -30,17 +34,33 @@ export default function TechnicianDashboard() {
   const [submittingRevision, setSubmittingRevision] = useState(false);
   const [commissionRefs, setCommissionRefs] = useState<Record<string, string>>({});
   const [submittingCommission, setSubmittingCommission] = useState<string | null>(null);
+  const [offers, setOffers] = useState<any[]>([]);
+  const [respondingOfferId, setRespondingOfferId] = useState<string | null>(null);
+  const [techProfile, setTechProfile] = useState<{ isAvailable: boolean; specialties: string[]; serviceRadiusKm: number } | null>(null);
+  const [togglingAvailability, setTogglingAvailability] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsSpecialties, setSettingsSpecialties] = useState<string[]>([]);
+  const [settingsRadius, setSettingsRadius] = useState('10');
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const loadData = async () => {
     try {
-      const [profData, jobData, earningsData] = await Promise.all([
+      const [profData, jobData, earningsData, offersData, techProfileData] = await Promise.all([
         fetchApi('/users/profile'),
         fetchApi('/bookings'),
         fetchApi('/payments/technician/earnings').catch(() => null),
+        fetchApi('/bookings/offers').catch(() => []),
+        fetchApi('/users/me/technician-profile').catch(() => null),
       ]);
       setProfile(profData);
       setJobs(jobData);
       setEarnings(earningsData);
+      setOffers(offersData);
+      if (techProfileData) {
+        setTechProfile(techProfileData);
+        setSettingsSpecialties(techProfileData.specialties);
+        setSettingsRadius(String(techProfileData.serviceRadiusKm));
+      }
 
       // Only ASSIGNED/IN_PROGRESS jobs can have a live price revision — no
       // point checking the rest on every refresh.
@@ -175,6 +195,77 @@ export default function TechnicianDashboard() {
     }
   };
 
+  const handleAcceptOffer = async (offerId: string) => {
+    setRespondingOfferId(offerId);
+    try {
+      await fetchApi(`/bookings/offers/${offerId}/accept`, { method: 'POST' });
+      showToast('Job accepted! Head to your assigned jobs.', 'success');
+      loadData();
+    } catch (err: any) {
+      showToast(err.message || 'Could not accept this job — it may have just been taken by another technician.', 'error');
+      loadData();
+    } finally {
+      setRespondingOfferId(null);
+    }
+  };
+
+  const handleDeclineOffer = async (offerId: string) => {
+    setRespondingOfferId(offerId);
+    try {
+      await fetchApi(`/bookings/offers/${offerId}/decline`, { method: 'POST' });
+      loadData();
+    } catch (err: any) {
+      showToast(err.message || 'Could not decline this job.', 'error');
+    } finally {
+      setRespondingOfferId(null);
+    }
+  };
+
+  const handleToggleAvailability = async () => {
+    if (!techProfile) return;
+    const next = !techProfile.isAvailable;
+    setTogglingAvailability(true);
+    setTechProfile({ ...techProfile, isAvailable: next }); // optimistic
+    try {
+      await fetchApi('/users/me/availability', {
+        method: 'PATCH',
+        body: JSON.stringify({ isAvailable: next }),
+      });
+      showToast(next ? "You're online — new jobs will be sent to you." : "You're offline — no new jobs will be sent.", 'success');
+    } catch (err: any) {
+      setTechProfile({ ...techProfile, isAvailable: !next }); // revert
+      showToast(err.message || 'Could not update your availability.', 'error');
+    } finally {
+      setTogglingAvailability(false);
+    }
+  };
+
+  const toggleSpecialty = (name: string) => {
+    setSettingsSpecialties((prev) => (prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]));
+  };
+
+  const handleSaveSettings = async () => {
+    const radius = parseFloat(settingsRadius);
+    if (!radius || radius <= 0 || radius > 100) {
+      showToast('Enter a service radius between 1 and 100 km.', 'error');
+      return;
+    }
+    setSavingSettings(true);
+    try {
+      await fetchApi('/users/me/technician-settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ specialties: settingsSpecialties, serviceRadiusKm: radius }),
+      });
+      showToast('Settings saved.', 'success');
+      setShowSettings(false);
+      loadData();
+    } catch (err: any) {
+      showToast(err.message || 'Could not save your settings.', 'error');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   const completedCount = jobs.filter((j) => j.status === 'COMPLETED').length;
 
   return (
@@ -257,31 +348,129 @@ export default function TechnicianDashboard() {
             {/* Availability Toggle */}
             <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200">
-                <Clock size={16} className="text-emerald-500" />
-                <span>Available for Jobs</span>
+                <Clock size={16} className={techProfile?.isAvailable ? 'text-emerald-500' : 'text-slate-400'} />
+                <span>{techProfile?.isAvailable ? 'Available for Jobs' : 'Offline'}</span>
               </div>
-              <div className="w-10 h-6 bg-emerald-500 rounded-full p-0.5 cursor-pointer flex justify-end">
+              <button
+                onClick={handleToggleAvailability}
+                disabled={togglingAvailability || !techProfile}
+                title="Toggle availability"
+                aria-label="Toggle availability"
+                className={`w-10 h-6 rounded-full p-0.5 cursor-pointer flex transition-all disabled:opacity-50 ${
+                  techProfile?.isAvailable ? 'bg-emerald-500 justify-end' : 'bg-slate-300 dark:bg-slate-700 justify-start'
+                }`}
+              >
                 <div className="w-5 h-5 bg-white dark:bg-slate-900 rounded-full shadow-sm"></div>
-              </div>
+              </button>
+            </div>
+
+            {/* Specialties / Service Radius */}
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none space-y-3">
+              <button onClick={() => setShowSettings((v) => !v)} className="w-full flex items-center justify-between text-sm font-bold text-slate-700 dark:text-slate-200">
+                <span className="flex items-center gap-2"><Settings size={16} className="text-[#328CC1]" /> Job Preferences</span>
+                <span className="text-[10px] text-slate-400 dark:text-slate-500">{showSettings ? 'Hide' : 'Edit'}</span>
+              </button>
+              {!showSettings && (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {techProfile?.specialties?.length ? techProfile.specialties.join(', ') : 'No specialties set — you will not receive any job offers'} · {techProfile?.serviceRadiusKm ?? 10} km radius
+                </p>
+              )}
+              {showSettings && (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-1.5">
+                    {SERVICE_NAMES.map((name) => (
+                      <button
+                        key={name}
+                        onClick={() => toggleSpecialty(name)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                          settingsSpecialties.includes(name)
+                            ? 'border-[#328CC1] bg-[#328CC1]/10 text-[#328CC1]'
+                            : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
+                        }`}
+                      >
+                        {settingsSpecialties.includes(name) && <Check size={10} className="inline mr-1" />}
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 shrink-0">Radius (km)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={settingsRadius}
+                      onChange={(e) => setSettingsRadius(e.target.value)}
+                      className="w-full p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs"
+                    />
+                  </div>
+                  <button onClick={handleSaveSettings} disabled={savingSettings} className="btn-secondary w-full text-xs py-1.5 disabled:opacity-50">
+                    {savingSettings ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Right Content - Jobs */}
           <div className="md:col-span-2 space-y-6">
             <div className="flex justify-between items-center">
-              <h2 className="font-heading text-xl font-extrabold text-[#0B3C5D] dark:text-sky-300">Your Assigned Jobs</h2>
+              <h2 className="font-heading text-xl font-extrabold text-[#0B3C5D] dark:text-sky-300">
+                {offers.length > 0 ? `Incoming Requests (${offers.length})` : 'Your Assigned Jobs'}
+              </h2>
               <button onClick={loadData} className="text-xs text-[#328CC1] font-bold flex items-center gap-1 hover:underline">
                 <RefreshCw size={12} /> Refresh
               </button>
             </div>
 
-            {jobs.length === 0 ? (
+            {offers.length > 0 && (
+              <div className="space-y-3">
+                {offers.map((offer) => (
+                  <div key={offer.id} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border-2 border-[#328CC1]/40 shadow-md space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-slate-400 dark:text-slate-500 text-xs font-extrabold tracking-wider">{offer.bookingNumber}</span>
+                        <h4 className="font-heading font-bold text-slate-800 dark:text-slate-100 text-base mt-0.5 flex items-center gap-1.5">
+                          {offer.itemName}
+                          {offer.isEmergency && <Zap size={14} className="text-red-500" />}
+                        </h4>
+                      </div>
+                      <span className="font-heading font-black text-lg text-[#0B3C5D] dark:text-sky-300">Rs. {offer.totalAmount}</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                      <span className="flex items-center gap-1"><MapPin size={12} /> {offer.city} · {offer.distanceKm} km away</span>
+                      <span className="flex items-center gap-1"><Clock size={12} /> {offer.scheduledDate}, {offer.scheduledTimeSlot}</span>
+                    </div>
+                    <div className="flex gap-3 justify-end pt-1">
+                      <button
+                        onClick={() => handleDeclineOffer(offer.id)}
+                        disabled={respondingOfferId === offer.id}
+                        className="btn-outline border-red-200 hover:bg-red-50 dark:bg-red-500/10 text-red-600 py-2 px-4 text-xs disabled:opacity-50"
+                      >
+                        Decline
+                      </button>
+                      <button
+                        onClick={() => handleAcceptOffer(offer.id)}
+                        disabled={respondingOfferId === offer.id}
+                        className="btn-primary py-2 px-4 text-xs disabled:opacity-50"
+                      >
+                        {respondingOfferId === offer.id ? 'Accepting…' : 'Accept Job'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {jobs.length === 0 && offers.length === 0 ? (
               <div className="bg-white dark:bg-slate-900 p-12 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 text-center text-slate-400 dark:text-slate-500">
                 <Clock size={40} className="mx-auto mb-4 text-slate-300 dark:text-slate-600" />
-                <p className="font-semibold">No jobs dispatched yet</p>
-                <p className="text-xs mt-2">Stay online to receive new job assignments</p>
+                <p className="font-semibold">No jobs yet</p>
+                <p className="text-xs mt-2">
+                  {techProfile?.isAvailable ? 'Stay online — new nearby job requests will show up here' : 'Go online in Job Preferences to start receiving requests'}
+                </p>
               </div>
-            ) : (
+            ) : jobs.length === 0 ? null : (
               <div className="space-y-4">
                 {jobs.map((job) => (
                   <div key={job.id} className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none space-y-4 hover:shadow-md transition-all">

@@ -246,6 +246,13 @@ async function seed() {
         kycStatus: KycStatus.APPROVED,
         isAvailable: true,
         rating: 4.95,
+        specialties: ['Plumbing'],
+        serviceRadiusKm: 15,
+        // Central Kathmandu — close to the demo customer's seeded address,
+        // so a real dispatch broadcast actually reaches this technician
+        // instead of finding zero candidates in range.
+        latitude: 27.7172,
+        longitude: 85.324,
       }),
     );
   }

@@ -6,6 +6,7 @@ import { UsersService } from '../users/users.service';
 import { EmailService } from '../auth/email.service';
 import { Booking, BookingStatus, PaymentMethod, PaymentStatus } from './entities/booking.entity';
 import { PriceRevision, RevisionStatus } from './entities/price-revision.entity';
+import { JobOffer, JobOfferStatus } from './entities/job-offer.entity';
 import { TechnicianPayout } from '../payments/entities/technician-payout.entity';
 import { User, UserRole } from '../users/entities/user.entity';
 import { TechnicianProfile } from '../users/entities/technician-profile.entity';
@@ -53,7 +54,34 @@ export interface PriceRevisionDto {
   respondedAt: string | null;
 }
 
-const PLUMBING_SERVICE_NAME = 'Plumbing';
+export interface JobOfferDto {
+  id: string;
+  bookingId: string;
+  bookingNumber: string;
+  itemName: string;
+  city: string;
+  addressText: string;
+  scheduledDate: string;
+  scheduledTimeSlot: string;
+  totalAmount: number;
+  distanceKm: number;
+  isEmergency: boolean;
+  createdAt: string;
+}
+
+// How many nearby, available, specialty-matched technicians a new booking
+// is broadcast to at once — like requesting a ride, not like calling one
+// specific plumber. Whoever accepts first gets it (see acceptOffer).
+const DISPATCH_BROADCAST_COUNT = 5;
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 // The company's cut of every completed job's base amount. Applied uniformly
 // regardless of payment method — the service fee and emergency surcharge
@@ -104,6 +132,8 @@ export class BookingsService {
     private readonly bookingRepository: Repository<Booking>,
     @InjectRepository(PriceRevision)
     private readonly priceRevisionRepository: Repository<PriceRevision>,
+    @InjectRepository(JobOffer)
+    private readonly jobOfferRepository: Repository<JobOffer>,
     @InjectRepository(TechnicianPayout)
     private readonly technicianPayoutRepository: Repository<TechnicianPayout>,
     @InjectRepository(User)
@@ -218,19 +248,13 @@ export class BookingsService {
     const emergencySurcharge = data.isEmergency ? 300 : 0;
     const totalAmount = baseAmount + serviceFee + emergencySurcharge;
 
-    // Auto-assign plumbing jobs to an available technician (demo dispatch rule)
-    let technician: User | null = null;
-    if (item.category?.service?.name === PLUMBING_SERVICE_NAME) {
-      technician = await this.userRepository.findOne({ where: { role: UserRole.TECHNICIAN } });
-    }
-
     const booking = this.bookingRepository.create({
       bookingNumber: this.generateBookingNumber(),
       customerId: userId,
-      technicianId: technician?.id ?? null,
+      technicianId: null,
       addressId: address.id,
       serviceItemId: item.id,
-      status: technician ? BookingStatus.ASSIGNED : BookingStatus.PENDING,
+      status: BookingStatus.PENDING,
       scheduledDate: data.scheduledDate,
       scheduledTimeSlot: data.scheduledTimeSlot,
       baseAmount,
@@ -262,16 +286,161 @@ export class BookingsService {
     const fullBooking = {
       ...saved!,
       customer,
-      technician,
+      technician: null,
       address,
       serviceItem: item,
     } as Booking;
 
-    if (technician) {
-      await this.notifyTechnicianAssigned(fullBooking, customer, technician);
-    }
+    // Broadcast to nearby, available, specialty-matched technicians — like
+    // requesting a ride, not directly assigning one. Best-effort: if
+    // nothing matches (no technician nearby covers this service, or none
+    // are available), the booking just stays PENDING for admin's manual
+    // dispatch fallback rather than failing the booking itself.
+    await this.broadcastToNearbyTechnicians(fullBooking, item.category?.service?.name);
 
     return this.toDto(fullBooking);
+  }
+
+  // ─── Ride-share style dispatch: broadcast, accept, decline ──────────────
+
+  private async broadcastToNearbyTechnicians(booking: Booking, serviceName: string | undefined): Promise<void> {
+    if (!serviceName || booking.address.lat == null || booking.address.lng == null) return;
+
+    const candidates = await this.technicianProfileRepository
+      .createQueryBuilder('profile')
+      .innerJoin(User, 'user', 'user.id = profile.userId')
+      .where('user.role = :role', { role: UserRole.TECHNICIAN })
+      .andWhere('profile.isAvailable = true')
+      .andWhere(':serviceName = ANY(profile.specialties)', { serviceName })
+      .andWhere('profile.latitude IS NOT NULL')
+      .andWhere('profile.longitude IS NOT NULL')
+      .getMany();
+
+    const inRange = candidates
+      .map((p) => ({
+        profile: p,
+        distanceKm: haversineKm(booking.address.lat, booking.address.lng, p.latitude!, p.longitude!),
+      }))
+      .filter((c) => c.distanceKm <= c.profile.serviceRadiusKm)
+      .sort((a, b) => a.distanceKm - b.distanceKm)
+      .slice(0, DISPATCH_BROADCAST_COUNT);
+
+    if (inRange.length === 0) return;
+
+    await this.jobOfferRepository.save(
+      inRange.map((c) =>
+        this.jobOfferRepository.create({
+          bookingId: booking.id,
+          technicianId: c.profile.userId,
+          status: JobOfferStatus.PENDING,
+          distanceKm: round2(c.distanceKm),
+        }),
+      ),
+    );
+  }
+
+  async getMyOffers(technicianId: string): Promise<JobOfferDto[]> {
+    const offers = await this.jobOfferRepository.find({
+      where: { technicianId, status: JobOfferStatus.PENDING },
+      order: { distanceKm: 'ASC' },
+    });
+    if (offers.length === 0) return [];
+
+    const bookings = await this.bookingRepository.find({
+      where: { id: In(offers.map((o) => o.bookingId)) },
+      relations: { address: true, serviceItem: true },
+    });
+    const byId = new Map(bookings.map((b) => [b.id, b]));
+
+    return offers
+      .filter((o) => byId.has(o.bookingId) && byId.get(o.bookingId)!.status === BookingStatus.PENDING)
+      .map((o) => {
+        const b = byId.get(o.bookingId)!;
+        return {
+          id: o.id,
+          bookingId: b.id,
+          bookingNumber: b.bookingNumber,
+          itemName: b.serviceItem?.name ?? '',
+          city: b.address?.city ?? '',
+          addressText: b.address ? `${b.address.street}, ${b.address.city}` : '',
+          scheduledDate: b.scheduledDate,
+          scheduledTimeSlot: b.scheduledTimeSlot,
+          totalAmount: b.totalAmount,
+          distanceKm: o.distanceKm,
+          isEmergency: b.emergencySurcharge > 0,
+          createdAt: o.createdAt.toISOString(),
+        };
+      });
+  }
+
+  // First technician to accept wins — everything here runs inside a
+  // transaction with a row lock on the booking, so two technicians racing
+  // to accept the same offer can never both succeed. The loser gets a
+  // clear "already taken" error instead of silently overwriting the winner.
+  async acceptOffer(offerId: string, technicianId: string): Promise<BookingDto> {
+    return this.bookingRepository.manager.transaction(async (manager) => {
+      const offerRepo = manager.getRepository(JobOffer);
+      const offer = await offerRepo.findOne({ where: { id: offerId } });
+      if (!offer || offer.technicianId !== technicianId) {
+        throw new NotFoundException('Job offer not found');
+      }
+      if (offer.status !== JobOfferStatus.PENDING) {
+        throw new BadRequestException('This offer is no longer available');
+      }
+
+      const booking = await manager
+        .createQueryBuilder(Booking, 'booking')
+        .setLock('pessimistic_write')
+        .where('booking.id = :id', { id: offer.bookingId })
+        .getOne();
+      if (!booking) throw new NotFoundException('Booking not found');
+
+      if (booking.technicianId) {
+        offer.status = JobOfferStatus.EXPIRED;
+        offer.respondedAt = new Date();
+        await offerRepo.save(offer);
+        throw new BadRequestException('This job was already taken by another technician');
+      }
+      if (booking.status !== BookingStatus.PENDING) {
+        throw new BadRequestException('This booking is no longer available');
+      }
+
+      booking.technicianId = technicianId;
+      booking.status = BookingStatus.ASSIGNED;
+      await manager.getRepository(Booking).save(booking);
+
+      offer.status = JobOfferStatus.ACCEPTED;
+      offer.respondedAt = new Date();
+      await offerRepo.save(offer);
+
+      // Every other technician who was offered this job no longer has a
+      // shot at it — reflect that immediately rather than leaving stale
+      // PENDING offers they'd only discover were dead by trying to accept.
+      await offerRepo.update(
+        { bookingId: offer.bookingId, status: JobOfferStatus.PENDING },
+        { status: JobOfferStatus.EXPIRED, respondedAt: new Date() },
+      );
+
+      const full = await this.loadWithRelations(booking.id);
+      const technician = await this.userRepository.findOne({ where: { id: technicianId } });
+      if (full.customer && technician) {
+        await this.notifyTechnicianAssigned(full, full.customer, technician);
+      }
+      return this.toDto(full);
+    });
+  }
+
+  async declineOffer(offerId: string, technicianId: string): Promise<void> {
+    const offer = await this.jobOfferRepository.findOne({ where: { id: offerId } });
+    if (!offer || offer.technicianId !== technicianId) {
+      throw new NotFoundException('Job offer not found');
+    }
+    if (offer.status !== JobOfferStatus.PENDING) {
+      return; // already resolved one way or another — nothing to do
+    }
+    offer.status = JobOfferStatus.DECLINED;
+    offer.respondedAt = new Date();
+    await this.jobOfferRepository.save(offer);
   }
 
   async findAll(userId: string, role: string): Promise<BookingDto[]> {
@@ -753,6 +922,15 @@ export class BookingsService {
     booking.technicianId = technician.id;
     booking.technician = technician;
     await this.bookingRepository.save(booking);
+
+    // A manual admin assignment takes priority over the broadcast — any
+    // technician who was offered this job and hasn't responded yet would
+    // otherwise be able to "accept" a booking someone else was already
+    // manually given.
+    await this.jobOfferRepository.update(
+      { bookingId: booking.id, status: JobOfferStatus.PENDING },
+      { status: JobOfferStatus.EXPIRED, respondedAt: new Date() },
+    );
 
     if (booking.customer) {
       await this.notifyTechnicianAssigned(booking, booking.customer, technician);

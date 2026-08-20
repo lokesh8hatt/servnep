@@ -52,6 +52,24 @@ class UpdateLocationDto {
   lng: number;
 }
 
+class UpdateAvailabilityDto {
+  @ApiProperty({ example: true })
+  @IsNotEmpty()
+  isAvailable: boolean;
+}
+
+class UpdateTechnicianSettingsDto {
+  @ApiProperty({ example: ['Plumbing', 'Electrical'], required: false })
+  @IsOptional()
+  @IsString({ each: true })
+  specialties?: string[];
+
+  @ApiProperty({ example: 15, required: false })
+  @IsOptional()
+  @IsNumber()
+  serviceRadiusKm?: number;
+}
+
 @ApiTags('Users & Profiles')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -94,5 +112,26 @@ export class UsersController {
   @ApiOperation({ summary: "Push the technician's current GPS position, for the customer's live map" })
   updateMyLocation(@CurrentUser() user: UserPayload, @Body() dto: UpdateLocationDto) {
     return this.usersService.updateMyLocation(user.sub, dto.lat, dto.lng);
+  }
+
+  @Get('me/technician-profile')
+  @Roles('TECHNICIAN')
+  @ApiOperation({ summary: "Get the technician's own availability/specialties/service radius" })
+  getMyTechnicianProfile(@CurrentUser() user: UserPayload) {
+    return this.usersService.getMyTechnicianProfile(user.sub);
+  }
+
+  @Patch('me/availability')
+  @Roles('TECHNICIAN')
+  @ApiOperation({ summary: 'Go online/offline for new job broadcasts' })
+  updateAvailability(@CurrentUser() user: UserPayload, @Body() dto: UpdateAvailabilityDto) {
+    return this.usersService.updateAvailability(user.sub, dto.isAvailable);
+  }
+
+  @Patch('me/technician-settings')
+  @Roles('TECHNICIAN')
+  @ApiOperation({ summary: 'Set which services this technician handles and how far they travel' })
+  updateTechnicianSettings(@CurrentUser() user: UserPayload, @Body() dto: UpdateTechnicianSettingsDto) {
+    return this.usersService.updateTechnicianSettings(user.sub, dto);
   }
 }

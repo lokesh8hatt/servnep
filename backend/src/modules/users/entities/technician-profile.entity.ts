@@ -40,6 +40,13 @@ export class TechnicianProfile {
   @Column({ type: 'decimal', precision: 5, scale: 2, default: 10.0, transformer: DecimalTransformer })
   serviceRadiusKm: number;
 
+  // Which top-level services (e.g. "Plumbing", "Electrical") this technician
+  // is offered jobs for — a job's service dispatches only to technicians
+  // whose specialties include it, so a plumber never gets offered wiring
+  // work just because they're nearby and available.
+  @Column({ type: 'text', array: true, default: () => "'{}'" })
+  specialties: string[];
+
   // Last-known GPS position, pushed by the technician's own browser while an
   // ASSIGNED/IN_PROGRESS job is active — powers the customer's live map.
   @Column({ type: 'decimal', precision: 9, scale: 6, nullable: true, transformer: DecimalTransformer })

@@ -92,4 +92,39 @@ export class UsersService {
     );
     return { message: 'Location updated' };
   }
+
+  async getMyTechnicianProfile(userId: string): Promise<{ isAvailable: boolean; specialties: string[]; serviceRadiusKm: number }> {
+    const profile = await this.technicianProfileRepository.findOne({ where: { userId } });
+    return {
+      isAvailable: profile?.isAvailable ?? false,
+      specialties: profile?.specialties ?? [],
+      serviceRadiusKm: profile?.serviceRadiusKm ?? 10,
+    };
+  }
+
+  // Toggling this off immediately stops new job broadcasts from reaching
+  // this technician — see BookingsService.broadcastToNearbyTechnicians,
+  // which filters on isAvailable at dispatch time.
+  async updateAvailability(userId: string, isAvailable: boolean): Promise<{ message: string }> {
+    await this.technicianProfileRepository.upsert({ userId, isAvailable }, ['userId']);
+    return { message: isAvailable ? 'You are now available for new jobs.' : 'You are now offline — no new jobs will be sent to you.' };
+  }
+
+  async updateTechnicianSettings(
+    userId: string,
+    data: { specialties?: string[]; serviceRadiusKm?: number },
+  ): Promise<{ message: string }> {
+    const update: Partial<TechnicianProfile> = { userId };
+    if (data.specialties) {
+      update.specialties = data.specialties.slice(0, 10).map((s) => s.trim().slice(0, 50)).filter(Boolean);
+    }
+    if (data.serviceRadiusKm != null) {
+      if (!Number.isFinite(data.serviceRadiusKm) || data.serviceRadiusKm <= 0 || data.serviceRadiusKm > 100) {
+        throw new BadRequestException('Service radius must be between 1 and 100 km');
+      }
+      update.serviceRadiusKm = data.serviceRadiusKm;
+    }
+    await this.technicianProfileRepository.upsert(update, ['userId']);
+    return { message: 'Technician settings updated' };
+  }
 }

@@ -7,6 +7,7 @@ import { UsersModule } from '../users/users.module';
 import { AuthModule } from '../auth/auth.module';
 import { Booking } from './entities/booking.entity';
 import { PriceRevision } from './entities/price-revision.entity';
+import { JobOffer } from './entities/job-offer.entity';
 import { User } from '../users/entities/user.entity';
 import { TechnicianProfile } from '../users/entities/technician-profile.entity';
 import { TechnicianPayout } from '../payments/entities/technician-payout.entity';
@@ -16,7 +17,7 @@ import { TechnicianPayout } from '../payments/entities/technician-payout.entity'
   // BookingsController) can resolve JwtService, which only AuthModule exports;
   // it also exports EmailService, used here for booking-assigned notifications.
   imports: [
-    TypeOrmModule.forFeature([Booking, PriceRevision, User, TechnicianProfile, TechnicianPayout]),
+    TypeOrmModule.forFeature([Booking, PriceRevision, JobOffer, User, TechnicianProfile, TechnicianPayout]),
     ServicesModule,
     UsersModule,
     AuthModule,

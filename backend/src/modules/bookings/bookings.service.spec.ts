@@ -1,12 +1,13 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ForbiddenException, BadRequestException } from '@nestjs/common';
+import { ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { BookingsService, COMMISSION_RATE } from './bookings.service';
 import { ServicesService } from '../services/services.service';
 import { UsersService } from '../users/users.service';
 import { EmailService } from '../auth/email.service';
 import { Booking, BookingStatus, PaymentMethod, PaymentStatus } from './entities/booking.entity';
 import { PriceRevision, RevisionStatus } from './entities/price-revision.entity';
+import { JobOffer, JobOfferStatus } from './entities/job-offer.entity';
 import { TechnicianPayout } from '../payments/entities/technician-payout.entity';
 import { User } from '../users/entities/user.entity';
 import { TechnicianProfile } from '../users/entities/technician-profile.entity';
@@ -16,6 +17,8 @@ describe('BookingsService', () => {
   let bookingRepo: { findOne: jest.Mock; save: jest.Mock; find: jest.Mock; update: jest.Mock; manager: any };
   let priceRevisionRepo: { findOne: jest.Mock; save: jest.Mock; create: jest.Mock; find: jest.Mock; count: jest.Mock };
   let payoutRepo: { save: jest.Mock; create: jest.Mock; find: jest.Mock };
+  let jobOfferRepo: { findOne: jest.Mock; save: jest.Mock; create: jest.Mock; find: jest.Mock; update: jest.Mock };
+  let userRepo: { findOne: jest.Mock };
 
   const CUSTOMER_ID = 'customer-1';
   const TECHNICIAN_ID = 'technician-1';
@@ -82,8 +85,16 @@ describe('BookingsService', () => {
       create: jest.fn((p) => p),
       find: jest.fn().mockResolvedValue([]),
     };
+    jobOfferRepo = {
+      findOne: jest.fn(),
+      save: jest.fn((o) => Promise.resolve(Array.isArray(o) ? o.map((x) => ({ ...x, id: x.id ?? 'offer-1' })) : { ...o, id: o.id ?? 'offer-1' })),
+      create: jest.fn((o) => o),
+      find: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue(undefined),
+    };
+    userRepo = { findOne: jest.fn() };
 
-    // requestPriceRevision/createPayout run inside
+    // requestPriceRevision/createPayout/acceptOffer run inside
     // bookingRepository.manager.transaction(async (manager) => {...}) and use
     // manager.createQueryBuilder(...)/manager.getRepository(...) — this mock
     // manager makes both resolve to the same jest mocks the tests assert on.
@@ -93,6 +104,7 @@ describe('BookingsService', () => {
       getRepository: jest.fn((entity: any) => {
         if (entity === PriceRevision) return priceRevisionRepo;
         if (entity === TechnicianPayout) return payoutRepo;
+        if (entity === JobOffer) return jobOfferRepo;
         return bookingRepo;
       }),
       query: jest.fn().mockResolvedValue(undefined),
@@ -107,8 +119,9 @@ describe('BookingsService', () => {
         { provide: EmailService, useValue: { isConfigured: () => false } },
         { provide: getRepositoryToken(Booking), useValue: bookingRepo },
         { provide: getRepositoryToken(PriceRevision), useValue: priceRevisionRepo },
+        { provide: getRepositoryToken(JobOffer), useValue: jobOfferRepo },
         { provide: getRepositoryToken(TechnicianPayout), useValue: payoutRepo },
-        { provide: getRepositoryToken(User), useValue: { findOne: jest.fn() } },
+        { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: getRepositoryToken(TechnicianProfile), useValue: { findOne: jest.fn() } },
       ],
     }).compile();
@@ -332,6 +345,86 @@ describe('BookingsService', () => {
     it('refuses to create a payout when nothing is owed', async () => {
       qbGetManyResult = [];
       await expect(service.createPayout(TECHNICIAN_ID)).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('job offers — ride-share style dispatch', () => {
+    const makeOffer = (overrides: Partial<JobOffer> = {}): any => ({
+      id: 'offer-1',
+      bookingId: 'booking-1',
+      technicianId: TECHNICIAN_ID,
+      status: JobOfferStatus.PENDING,
+      distanceKm: 3.2,
+      createdAt: new Date(),
+      respondedAt: null,
+      ...overrides,
+    });
+
+    describe('acceptOffer', () => {
+      it('rejects an offer that does not belong to this technician', async () => {
+        jobOfferRepo.findOne.mockResolvedValue(makeOffer({ technicianId: OTHER_ID }));
+        await expect(service.acceptOffer('offer-1', TECHNICIAN_ID)).rejects.toThrow(NotFoundException);
+      });
+
+      it('rejects an offer that is no longer pending', async () => {
+        jobOfferRepo.findOne.mockResolvedValue(makeOffer({ status: JobOfferStatus.DECLINED }));
+        await expect(service.acceptOffer('offer-1', TECHNICIAN_ID)).rejects.toThrow(BadRequestException);
+      });
+
+      // This is the core race-safety guarantee: two technicians accepting
+      // the same offer at once must never both win. The row lock inside
+      // acceptOffer's transaction means whichever call runs second sees
+      // technicianId already set and loses cleanly.
+      it('refuses to accept when another technician already won the race, and expires the loser\'s offer', async () => {
+        jobOfferRepo.findOne.mockResolvedValue(makeOffer());
+        qbGetOneResult = makeBooking({ status: BookingStatus.ASSIGNED, technicianId: OTHER_ID });
+
+        await expect(service.acceptOffer('offer-1', TECHNICIAN_ID)).rejects.toThrow('already taken');
+        expect(jobOfferRepo.save).toHaveBeenCalledWith(expect.objectContaining({ status: JobOfferStatus.EXPIRED }));
+      });
+
+      it('assigns the booking, accepts the offer, and expires every other pending offer on success', async () => {
+        jobOfferRepo.findOne.mockResolvedValue(makeOffer());
+        qbGetOneResult = makeBooking({ status: BookingStatus.PENDING, technicianId: null as any });
+        bookingRepo.findOne.mockResolvedValue(makeBooking({ status: BookingStatus.ASSIGNED, technicianId: TECHNICIAN_ID }));
+        userRepo.findOne.mockResolvedValue({ id: TECHNICIAN_ID, fullName: 'Ramesh' });
+
+        const dto = await service.acceptOffer('offer-1', TECHNICIAN_ID);
+
+        expect(bookingRepo.save).toHaveBeenCalledWith(expect.objectContaining({ technicianId: TECHNICIAN_ID, status: BookingStatus.ASSIGNED }));
+        expect(jobOfferRepo.save).toHaveBeenCalledWith(expect.objectContaining({ status: JobOfferStatus.ACCEPTED }));
+        expect(jobOfferRepo.update).toHaveBeenCalledWith(
+          { bookingId: 'booking-1', status: JobOfferStatus.PENDING },
+          expect.objectContaining({ status: JobOfferStatus.EXPIRED }),
+        );
+        expect(dto.technicianId).toBe(TECHNICIAN_ID);
+      });
+    });
+
+    describe('declineOffer', () => {
+      it('marks a pending offer declined', async () => {
+        jobOfferRepo.findOne.mockResolvedValue(makeOffer());
+        await service.declineOffer('offer-1', TECHNICIAN_ID);
+        expect(jobOfferRepo.save).toHaveBeenCalledWith(expect.objectContaining({ status: JobOfferStatus.DECLINED }));
+      });
+
+      it('rejects a decline from a technician the offer was not sent to', async () => {
+        jobOfferRepo.findOne.mockResolvedValue(makeOffer({ technicianId: OTHER_ID }));
+        await expect(service.declineOffer('offer-1', TECHNICIAN_ID)).rejects.toThrow(NotFoundException);
+      });
+    });
+
+    describe('getMyOffers', () => {
+      it('only returns offers whose booking is still actually pending', async () => {
+        jobOfferRepo.find.mockResolvedValue([makeOffer({ id: 'offer-1', bookingId: 'booking-1' }), makeOffer({ id: 'offer-2', bookingId: 'booking-2' })]);
+        bookingRepo.find.mockResolvedValue([
+          makeBooking({ id: 'booking-1', status: BookingStatus.PENDING }),
+          makeBooking({ id: 'booking-2', status: BookingStatus.ASSIGNED }), // someone else already took this one
+        ]);
+        const offers = await service.getMyOffers(TECHNICIAN_ID);
+        expect(offers).toHaveLength(1);
+        expect(offers[0].bookingId).toBe('booking-1');
+      });
     });
   });
 });

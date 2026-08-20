@@ -104,6 +104,29 @@ export class BookingsController {
     return this.bookingsService.findAll(user.sub, user.role);
   }
 
+  // Registered ahead of the :id routes below so "offers" is never matched
+  // as a booking ID.
+  @Get('offers')
+  @Roles('TECHNICIAN')
+  @ApiOperation({ summary: 'List job offers currently awaiting this technician — broadcast dispatch, ride-share style' })
+  getMyOffers(@CurrentUser() user: UserPayload) {
+    return this.bookingsService.getMyOffers(user.sub);
+  }
+
+  @Post('offers/:offerId/accept')
+  @Roles('TECHNICIAN')
+  @ApiOperation({ summary: 'Accept a job offer — first technician to accept wins the job' })
+  acceptOffer(@Param('offerId') offerId: string, @CurrentUser() user: UserPayload) {
+    return this.bookingsService.acceptOffer(offerId, user.sub);
+  }
+
+  @Post('offers/:offerId/decline')
+  @Roles('TECHNICIAN')
+  @ApiOperation({ summary: 'Decline a job offer' })
+  declineOffer(@Param('offerId') offerId: string, @CurrentUser() user: UserPayload) {
+    return this.bookingsService.declineOffer(offerId, user.sub);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get booking details by ID' })
   findById(@Param('id') id: string, @CurrentUser() user: UserPayload) {
