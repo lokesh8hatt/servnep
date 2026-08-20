@@ -7,6 +7,7 @@ import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { User, UserRole } from '../users/entities/user.entity';
 import { EmailService } from './email.service';
+import { OtpCode, OtpPurpose } from './entities/otp-code.entity';
 
 @Injectable()
 export class AuthService {
@@ -16,10 +17,34 @@ export class AuthService {
     private readonly emailService: EmailService,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(OtpCode)
+    private readonly otpRepository: Repository<OtpCode>,
   ) {}
 
-  private otpStorage = new Map<string, { code: string; expiresAt: Date }>();
-  private passwordResetOtpStorage = new Map<string, { code: string; expiresAt: Date }>();
+  // A fresh request replaces any code already outstanding for the same
+  // identifier+purpose, matching the old Map.set semantics (one active
+  // code at a time) — this is why delete happens before insert, not after.
+  private async storeOtp(identifier: string, purpose: OtpPurpose, code: string, ttlMs: number): Promise<void> {
+    await this.otpRepository.delete({ identifier, purpose });
+    await this.otpRepository.save(this.otpRepository.create({ identifier, purpose, code, expiresAt: new Date(Date.now() + ttlMs) }));
+  }
+
+  // Throws on a missing/expired/mismatched code; deletes it on success so it
+  // can't be replayed. Shared by phone-login and password-reset verification.
+  private async consumeOtp(identifier: string, purpose: OtpPurpose, code: string): Promise<void> {
+    const record = await this.otpRepository.findOne({ where: { identifier, purpose } });
+    if (!record) {
+      throw new UnauthorizedException('No verification code was requested for this. Please request a new one.');
+    }
+    if (new Date() > record.expiresAt) {
+      await this.otpRepository.delete({ id: record.id });
+      throw new UnauthorizedException('This code has expired. Please request a new one.');
+    }
+    if (record.code !== code) {
+      throw new UnauthorizedException('Invalid verification code');
+    }
+    await this.otpRepository.delete({ id: record.id });
+  }
 
   // Rate limiting: Track OTP requests per phone number
   private otpRateLimit = new Map<string, { count: number; windowStart: number }>();
@@ -54,8 +79,7 @@ export class AuthService {
 
     // Generate a real 6-digit OTP
     const otpCode = crypto.randomInt(100000, 999999).toString();
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes expiry
-    this.otpStorage.set(phoneNumber, { code: otpCode, expiresAt });
+    await this.storeOtp(phoneNumber, OtpPurpose.PHONE_LOGIN, otpCode, 5 * 60 * 1000);
 
     // In production, this would call an SMS gateway API instead. Outside
     // production — or in a production deploy explicitly flagged as a public
@@ -77,20 +101,7 @@ export class AuthService {
     phoneNumber: string,
     otpCode: string,
   ): Promise<ReturnType<AuthService['issueSession']>> {
-    const record = this.otpStorage.get(phoneNumber);
-    if (!record) {
-      throw new UnauthorizedException('No OTP request found for this phone number. Please request a new OTP.');
-    }
-    if (new Date() > record.expiresAt) {
-      this.otpStorage.delete(phoneNumber);
-      throw new UnauthorizedException('OTP has expired. Please request a new OTP.');
-    }
-    if (record.code !== otpCode) {
-      throw new UnauthorizedException('Invalid OTP code');
-    }
-
-    // OTP verified - clean up
-    this.otpStorage.delete(phoneNumber);
+    await this.consumeOtp(phoneNumber, OtpPurpose.PHONE_LOGIN, otpCode);
 
     // Find or create user
     let user = await this.userRepository.findOne({ where: { phoneNumber } });
@@ -160,8 +171,7 @@ export class AuthService {
     this.checkRateLimit(`reset:${email}`);
 
     const otpCode = crypto.randomInt(100000, 999999).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-    this.passwordResetOtpStorage.set(email, { code: otpCode, expiresAt });
+    await this.storeOtp(email, OtpPurpose.PASSWORD_RESET, otpCode, 10 * 60 * 1000);
 
     // Mirrors requestOtp's exact shape: isLiveProduction gates whether the
     // code is ever exposed in the response, independent of whether Gmail
@@ -193,17 +203,9 @@ export class AuthService {
   }
 
   async resetPassword(email: string, otpCode: string, newPassword: string): Promise<{ message: string }> {
-    const record = this.passwordResetOtpStorage.get(email);
-    if (!record) {
-      throw new UnauthorizedException('No password reset was requested for this email. Please request a new code.');
-    }
-    if (new Date() > record.expiresAt) {
-      this.passwordResetOtpStorage.delete(email);
-      throw new UnauthorizedException('This code has expired. Please request a new one.');
-    }
-    if (record.code !== otpCode) {
-      throw new UnauthorizedException('Invalid verification code');
-    }
+    // Consumes (deletes) the code as a side effect, before touching the
+    // user — a caught exception here must not leave the code replayable.
+    await this.consumeOtp(email, OtpPurpose.PASSWORD_RESET, otpCode);
     if (newPassword.length < 8) {
       throw new BadRequestException('Password must be at least 8 characters');
     }
@@ -215,7 +217,6 @@ export class AuthService {
 
     user.passwordHash = await bcrypt.hash(newPassword, 10);
     await this.userRepository.save(user);
-    this.passwordResetOtpStorage.delete(email);
 
     return { message: 'Password updated. You can now log in with your new password.' };
   }

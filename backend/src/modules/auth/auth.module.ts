@@ -9,10 +9,11 @@ import { EmailService } from './email.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { User } from '../users/entities/user.entity';
+import { OtpCode } from './entities/otp-code.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, OtpCode]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

@@ -79,6 +79,16 @@ Visit your Vercel URL and check:
 
 ---
 
+## Redeploying after a change
+
+Use `scripts/deploy-backend.sh` and `scripts/deploy-frontend.sh` rather than
+triggering deploys by hand. They push to `origin/main` first and then verify
+the commit that actually went live matches — a plain "trigger a Render
+deploy" call has no way to notice if your local commits were never pushed,
+and will happily redeploy stale code with no error. `deploy-backend.sh`
+needs `RENDER_API_KEY` set; `deploy-frontend.sh` needs the Vercel CLI logged
+in (`vercel login`).
+
 ## Notes for later
 
 - **`DB_SYNCHRONIZE=true` in production** is a deliberate demo-scope tradeoff — there's no migration system, so this lets TypeORM create/adjust tables automatically. Once you have real data you care about, set it to `false` in Render's environment settings and introduce proper TypeORM migrations before making further schema changes.
