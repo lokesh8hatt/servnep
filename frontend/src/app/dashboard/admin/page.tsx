@@ -16,11 +16,18 @@ export default function AdminDashboard() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState('ALL');
   const [paymentClaims, setPaymentClaims] = useState<Record<string, string>>({});
+  const [payouts, setPayouts] = useState<{ technicianId: string; technicianName: string; pendingBalance: number; bookingCount: number }[]>([]);
+  const [payingOutId, setPayingOutId] = useState('');
+  const [payoutNotes, setPayoutNotes] = useState<Record<string, string>>({});
 
   const loadData = async () => {
     try {
-      const data = await fetchApi('/bookings');
+      const [data, payoutData] = await Promise.all([
+        fetchApi('/bookings'),
+        fetchApi('/payments/admin/payouts').catch(() => []),
+      ]);
       setBookings(data);
+      setPayouts(payoutData);
 
       const pending = data.filter((b: any) => b.paymentStatus === 'PENDING_VERIFICATION');
       const claims = await Promise.all(
@@ -78,12 +85,47 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleVerifyCommission = async (bookingId: string, approved: boolean) => {
+    try {
+      await fetchApi(`/payments/commission/${bookingId}/verify`, {
+        method: 'PATCH',
+        body: JSON.stringify({ approved }),
+      });
+      showToast(approved ? 'Commission remittance verified.' : 'Commission remittance rejected.', approved ? 'success' : 'info');
+      loadData();
+    } catch (err: any) {
+      showToast(err.message || 'Could not update commission status. Please try again.', 'error');
+    }
+  };
+
+  const handlePayout = async (technicianId: string) => {
+    setPayingOutId(technicianId);
+    try {
+      const result = await fetchApi('/payments/admin/payouts', {
+        method: 'POST',
+        body: JSON.stringify({ technicianId, notes: payoutNotes[technicianId] || undefined }),
+      });
+      showToast(`Paid out Rs. ${result.totalAmount} across ${result.bookingCount} job${result.bookingCount === 1 ? '' : 's'}.`, 'success');
+      loadData();
+    } catch (err: any) {
+      showToast(err.message || 'Could not record this payout. Please try again.', 'error');
+    } finally {
+      setPayingOutId('');
+    }
+  };
+
   const getStats = () => {
     const totalBookings = bookings.length;
-    const completed = bookings.filter(b => b.status === 'COMPLETED').length;
-    const revenue = bookings
-      .filter(b => b.status === 'COMPLETED' || b.paymentStatus === 'PAID')
-      .reduce((acc, curr) => acc + curr.totalAmount, 0);
+    const completedBookings = bookings.filter(b => b.status === 'COMPLETED');
+    const completed = completedBookings.length;
+    // The company's actual take, not gross transaction volume: service fee +
+    // emergency surcharge (100% company, every booking) plus the 15%
+    // commission on completed jobs — not the full totalAmount, most of
+    // which belongs to the technician.
+    const revenue = completedBookings.reduce(
+      (acc, curr) => acc + curr.serviceFee + curr.emergencySurcharge + (curr.commissionAmount || 0),
+      0,
+    );
     const activeTechs = 14;
     return { totalBookings, completed, revenue, activeTechs };
   };
@@ -260,6 +302,38 @@ export default function AdminDashboard() {
                               </div>
                             </div>
                           )}
+                          {b.status === 'COMPLETED' && b.paymentMethod === 'CASH' && !b.commissionSettled && (
+                            <div className="mt-1.5 space-y-1">
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                Commission Rs. {b.commissionAmount}
+                                {b.commissionReference ? (
+                                  <> — ref: <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{b.commissionReference}</span></>
+                                ) : (
+                                  ' — not yet remitted'
+                                )}
+                              </p>
+                              {b.commissionReference && (
+                                <div className="flex gap-1.5">
+                                  <button
+                                    onClick={() => handleVerifyCommission(b.id, true)}
+                                    title="Confirm commission received"
+                                    aria-label="Confirm commission received"
+                                    className="p-1 rounded-md bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
+                                  >
+                                    <Check size={12} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleVerifyCommission(b.id, false)}
+                                    title="Reject commission claim"
+                                    aria-label="Reject commission claim"
+                                    className="p-1 rounded-md bg-red-500/10 text-red-600 hover:bg-red-500/20"
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="py-4 text-right">
                           {!b.technicianId && (
@@ -277,6 +351,48 @@ export default function AdminDashboard() {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Technician Payouts */}
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-xs dark:shadow-none space-y-4">
+            <h2 className="font-heading text-lg font-extrabold text-[#0B3C5D] dark:text-sky-300 border-b border-slate-200 dark:border-slate-700 pb-4">
+              Technician Payouts
+            </h2>
+            {payouts.length === 0 ? (
+              <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-6">No pending payouts — every settled job has been paid out.</p>
+            ) : (
+              <div className="space-y-3">
+                {payouts.map((p) => (
+                  <div key={p.technicianId} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-sky-50 dark:bg-slate-950">
+                    <div>
+                      <p className="font-bold text-sm text-slate-800 dark:text-slate-100">{p.technicianName}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Rs. {p.pendingBalance} owed across {p.bookingCount} job{p.bookingCount === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        placeholder="Payout note (optional)"
+                        value={payoutNotes[p.technicianId] || ''}
+                        onChange={(e) => setPayoutNotes((prev) => ({ ...prev, [p.technicianId]: e.target.value }))}
+                        className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs w-40"
+                      />
+                      <button
+                        onClick={() => handlePayout(p.technicianId)}
+                        disabled={payingOutId === p.technicianId}
+                        className="btn-primary py-2 px-3 text-xs flex items-center gap-1 disabled:opacity-50 shrink-0"
+                      >
+                        <Send size={11} /> {payingOutId === p.technicianId ? 'Paying…' : 'Pay Now'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-[10px] text-slate-400 dark:text-slate-500">
+              "Pay Now" only records that you already paid the technician outside the app (bank/eSewa/cash) — it doesn't move money itself.
+            </p>
           </div>
         </main>
       </div>

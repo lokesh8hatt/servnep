@@ -5,7 +5,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { CurrentUser, UserPayload } from '../../common/decorators/user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsBoolean, IsOptional, IsArray, IsIn } from 'class-validator';
+import { IsNotEmpty, IsString, IsBoolean, IsOptional, IsArray, IsIn, IsNumber, Min } from 'class-validator';
 import { BookingStatus, PaymentMethod } from './entities/booking.entity';
 
 class CreateBookingDto {
@@ -67,6 +67,24 @@ class ManualAssignDto {
   technicianId: string;
 }
 
+class RequestPriceRevisionDto {
+  @ApiProperty({ example: 500 })
+  @IsNumber()
+  @Min(1)
+  requestedAmount: number;
+
+  @ApiProperty({ example: 'Actual issue was a loose connection, not a full gas leak — smaller fix than booked.' })
+  @IsNotEmpty()
+  @IsString()
+  reason: string;
+}
+
+class RespondPriceRevisionDto {
+  @ApiProperty({ example: true })
+  @IsBoolean()
+  approved: boolean;
+}
+
 @ApiTags('Bookings & Jobs')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -117,5 +135,30 @@ export class BookingsController {
   @ApiOperation({ summary: 'Manually dispatch/assign a technician' })
   assignTechnician(@Param('id') id: string, @Body() dto: ManualAssignDto) {
     return this.bookingsService.assignTechnician(id, dto.technicianId);
+  }
+
+  @Post(':id/price-revision')
+  @Roles('TECHNICIAN')
+  @ApiOperation({ summary: 'Technician proposes a revised job price after on-site diagnosis, pending customer approval' })
+  requestPriceRevision(@Param('id') id: string, @Body() dto: RequestPriceRevisionDto, @CurrentUser() user: UserPayload) {
+    return this.bookingsService.requestPriceRevision(id, user.sub, dto.requestedAmount, dto.reason);
+  }
+
+  @Get(':id/price-revision')
+  @ApiOperation({ summary: 'List price revision history for a booking' })
+  getPriceRevisions(@Param('id') id: string, @CurrentUser() user: UserPayload) {
+    return this.bookingsService.getPriceRevisions(id, user);
+  }
+
+  @Patch(':id/price-revision/:revisionId')
+  @Roles('CUSTOMER')
+  @ApiOperation({ summary: 'Customer approves or rejects a proposed price revision' })
+  respondToPriceRevision(
+    @Param('id') id: string,
+    @Param('revisionId') revisionId: string,
+    @Body() dto: RespondPriceRevisionDto,
+    @CurrentUser() user: UserPayload,
+  ) {
+    return this.bookingsService.respondToPriceRevision(id, revisionId, user.sub, dto.approved);
   }
 }

@@ -74,7 +74,40 @@ export class PaymentsService {
 
     const nextStatus = approved ? PaymentStatus.PAID : PaymentStatus.FAILED;
     await this.bookingsService.updatePaymentStatus(bookingId, nextStatus);
+
+    // The whole manual transfer — job value and commission both — just
+    // landed on the company's own number in one lump sum, so the company's
+    // cut is inherently already collected the moment this is verified.
+    // Cash jobs don't get this for free; see claimCommissionRemittance.
+    if (approved) {
+      await this.bookingsService.markCommissionSettled(bookingId);
+    }
+
     return { status: nextStatus };
+  }
+
+  // ─── Commission settlement (cash jobs) & technician payouts ─────────────
+
+  async claimCommissionRemittance(bookingId: string, technicianId: string, reference: string) {
+    await this.bookingsService.claimCommissionRemittance(bookingId, technicianId, reference);
+    return { message: 'Commission remittance submitted — awaiting admin verification.' };
+  }
+
+  async verifyCommissionRemittance(bookingId: string, approved: boolean) {
+    await this.bookingsService.verifyCommissionRemittance(bookingId, approved);
+    return { message: approved ? 'Commission remittance verified.' : 'Commission remittance rejected.' };
+  }
+
+  getTechnicianEarnings(technicianId: string) {
+    return this.bookingsService.getTechnicianEarnings(technicianId);
+  }
+
+  listPendingPayouts() {
+    return this.bookingsService.listPendingPayouts();
+  }
+
+  createPayout(technicianId: string, notes?: string) {
+    return this.bookingsService.createPayout(technicianId, notes);
   }
 
   // ─── eSewa sandbox integration (technical demo — test money only) ───────

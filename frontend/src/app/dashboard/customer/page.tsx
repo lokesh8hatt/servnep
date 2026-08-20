@@ -43,6 +43,8 @@ export default function CustomerDashboard() {
   const [comment, setComment] = useState('');
   const [claimingBookingId, setClaimingBookingId] = useState('');
   const [paymentReferences, setPaymentReferences] = useState<Record<string, string>>({});
+  const [pendingRevisions, setPendingRevisions] = useState<Record<string, any>>({});
+  const [respondingRevisionId, setRespondingRevisionId] = useState('');
 
   // Tracks each booking's last-seen technicianId so a poll can detect a
   // fresh assignment and fire a notification — not just refresh silently.
@@ -73,6 +75,20 @@ export default function CustomerDashboard() {
       lastKnownTechnicianRef.current = Object.fromEntries(bookData.map((b: any) => [b.id, b.technicianId]));
 
       setBookings(bookData);
+
+      const activeBookings = bookData.filter((b: any) => b.status === 'ASSIGNED' || b.status === 'IN_PROGRESS');
+      const revisionEntries = await Promise.all(
+        activeBookings.map(async (b: any) => {
+          try {
+            const history = await fetchApi(`/bookings/${b.id}/price-revision`);
+            const latest = history[0];
+            return [b.id, latest?.status === 'PENDING' ? latest : null] as const;
+          } catch {
+            return [b.id, null] as const;
+          }
+        }),
+      );
+      setPendingRevisions(Object.fromEntries(revisionEntries.filter(([, v]) => v)));
     } catch {
       // If API fails (e.g. token expired), logout
       showToast('Please log in to continue.', 'error');
@@ -156,6 +172,22 @@ export default function CustomerDashboard() {
       // Logout locally even if API fails
     }
     logout();
+  };
+
+  const handleRespondRevision = async (bookingId: string, revisionId: string, approved: boolean) => {
+    setRespondingRevisionId(revisionId);
+    try {
+      await fetchApi(`/bookings/${bookingId}/price-revision/${revisionId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ approved }),
+      });
+      showToast(approved ? 'Price change approved.' : 'Price change rejected — original price stands.', 'success');
+      loadData();
+    } catch (err: any) {
+      showToast(err.message || 'Could not respond to the price change.', 'error');
+    } finally {
+      setRespondingRevisionId('');
+    }
   };
 
   return (
@@ -283,6 +315,31 @@ export default function CustomerDashboard() {
 
                     {(booking.status === 'ASSIGNED' || booking.status === 'IN_PROGRESS') && (
                       <TechnicianMap bookingId={booking.id} />
+                    )}
+
+                    {pendingRevisions[booking.id] && (
+                      <div className="rounded-xl p-3 space-y-2 text-xs bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20">
+                        <p className="font-bold text-amber-800 dark:text-amber-300">
+                          Your technician proposes a revised price: Rs. {pendingRevisions[booking.id].requestedAmount} (was Rs. {pendingRevisions[booking.id].previousAmount})
+                        </p>
+                        <p className="text-amber-700 dark:text-amber-400">{pendingRevisions[booking.id].reason}</p>
+                        <div className="flex gap-2 justify-end pt-1">
+                          <button
+                            onClick={() => handleRespondRevision(booking.id, pendingRevisions[booking.id].id, false)}
+                            disabled={respondingRevisionId === pendingRevisions[booking.id].id}
+                            className="btn-outline py-1.5 px-3 text-xs disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                          <button
+                            onClick={() => handleRespondRevision(booking.id, pendingRevisions[booking.id].id, true)}
+                            disabled={respondingRevisionId === pendingRevisions[booking.id].id}
+                            className="btn-primary py-1.5 px-3 text-xs disabled:opacity-50"
+                          >
+                            {respondingRevisionId === pendingRevisions[booking.id].id ? 'Saving…' : 'Approve'}
+                          </button>
+                        </div>
+                      </div>
                     )}
 
                     {booking.paymentMethod !== 'CASH' && booking.paymentStatus === 'PENDING' && (

@@ -1,10 +1,12 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In, IsNull } from 'typeorm';
 import { ServicesService } from '../services/services.service';
 import { UsersService } from '../users/users.service';
 import { EmailService } from '../auth/email.service';
 import { Booking, BookingStatus, PaymentMethod, PaymentStatus } from './entities/booking.entity';
+import { PriceRevision, RevisionStatus } from './entities/price-revision.entity';
+import { TechnicianPayout } from '../payments/entities/technician-payout.entity';
 import { User, UserRole } from '../users/entities/user.entity';
 import { TechnicianProfile } from '../users/entities/technician-profile.entity';
 import { UserPayload } from '../../common/decorators/user.decorator';
@@ -32,10 +34,38 @@ export interface BookingDto {
   imagesAfter: string[];
   paymentStatus: PaymentStatus;
   paymentMethod: PaymentMethod;
+  commissionAmount: number | null;
+  technicianPayoutAmount: number | null;
+  commissionSettled: boolean;
+  commissionReference: string | null;
+  payoutId: string | null;
   createdAt: string;
 }
 
+export interface PriceRevisionDto {
+  id: string;
+  bookingId: string;
+  previousAmount: number;
+  requestedAmount: number;
+  reason: string;
+  status: RevisionStatus;
+  createdAt: string;
+  respondedAt: string | null;
+}
+
 const PLUMBING_SERVICE_NAME = 'Plumbing';
+
+// The company's cut of every completed job's base amount. Applied uniformly
+// regardless of payment method — the service fee and emergency surcharge
+// are already 100% the company's, this is the additional slice of the job
+// value itself. See PaymentsService/BookingsService for how it's collected:
+// automatically for ESEWA/KHALTI (money already lands on the company's
+// number), only after admin-verified remittance for CASH.
+export const COMMISSION_RATE = 0.15;
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 @Injectable()
 export class BookingsService {
@@ -45,6 +75,10 @@ export class BookingsService {
     private readonly emailService: EmailService,
     @InjectRepository(Booking)
     private readonly bookingRepository: Repository<Booking>,
+    @InjectRepository(PriceRevision)
+    private readonly priceRevisionRepository: Repository<PriceRevision>,
+    @InjectRepository(TechnicianPayout)
+    private readonly technicianPayoutRepository: Repository<TechnicianPayout>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     @InjectRepository(TechnicianProfile)
@@ -94,7 +128,25 @@ export class BookingsService {
       imagesAfter: booking.imagesAfter,
       paymentStatus: booking.paymentStatus,
       paymentMethod: booking.paymentMethod,
+      commissionAmount: booking.commissionAmount,
+      technicianPayoutAmount: booking.technicianPayoutAmount,
+      commissionSettled: booking.commissionSettled,
+      commissionReference: booking.commissionReference,
+      payoutId: booking.payoutId,
       createdAt: booking.createdAt.toISOString(),
+    };
+  }
+
+  private toPriceRevisionDto(revision: PriceRevision): PriceRevisionDto {
+    return {
+      id: revision.id,
+      bookingId: revision.bookingId,
+      previousAmount: revision.previousAmount,
+      requestedAmount: revision.requestedAmount,
+      reason: revision.reason,
+      status: revision.status,
+      createdAt: revision.createdAt.toISOString(),
+      respondedAt: revision.respondedAt ? revision.respondedAt.toISOString() : null,
     };
   }
 
@@ -345,12 +397,245 @@ export class BookingsService {
     if (!isAssignedTechnician && !isStaff) {
       throw new ForbiddenException('You are not assigned to this booking');
     }
-    booking.status = status;
-    if (status === BookingStatus.COMPLETED && imagesAfter) {
-      booking.imagesAfter = imagesAfter;
+
+    if (status === BookingStatus.COMPLETED) {
+      const pendingRevision = await this.priceRevisionRepository.findOne({
+        where: { bookingId: id, status: RevisionStatus.PENDING },
+      });
+      if (pendingRevision) {
+        throw new BadRequestException('Resolve the pending price change before marking this job complete');
+      }
+
+      // Locked in now, from whatever baseAmount stands at this moment (i.e.
+      // reflecting any approved PriceRevision) — this is what the technician
+      // is owed and what the company's commission is calculated from.
+      booking.commissionAmount = round2(booking.baseAmount * COMMISSION_RATE);
+      booking.technicianPayoutAmount = round2(booking.baseAmount - booking.commissionAmount);
+
+      // Cash is handed over in person at completion, so the customer's
+      // payment is done — but that's separate from whether the company's
+      // commission has actually been collected (commissionSettled), which
+      // for cash requires a remittance the technician hasn't made yet.
+      if (booking.paymentMethod === PaymentMethod.CASH) {
+        booking.paymentStatus = PaymentStatus.PAID;
+      }
+
+      if (imagesAfter) {
+        booking.imagesAfter = imagesAfter;
+      }
     }
+
+    booking.status = status;
     await this.bookingRepository.save(booking);
     return this.toDto(booking);
+  }
+
+  // ─── Price revisions — technician-proposed, customer-approved ───────────
+
+  async requestPriceRevision(
+    bookingId: string,
+    technicianId: string,
+    requestedAmount: number,
+    reason: string,
+  ): Promise<PriceRevisionDto> {
+    const booking = await this.loadWithRelations(bookingId);
+    if (booking.technicianId !== technicianId) {
+      throw new ForbiddenException('You are not assigned to this booking');
+    }
+    if (booking.status === BookingStatus.COMPLETED || booking.status === BookingStatus.CANCELLED) {
+      throw new BadRequestException('This booking is already finished');
+    }
+    if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+      throw new BadRequestException('Enter a valid revised amount');
+    }
+    if (!reason || reason.trim().length < 4) {
+      throw new BadRequestException('Explain why the price is changing — this is what the customer sees before approving');
+    }
+
+    const existingPending = await this.priceRevisionRepository.findOne({
+      where: { bookingId, status: RevisionStatus.PENDING },
+    });
+    if (existingPending) {
+      throw new BadRequestException('A price change is already awaiting customer approval for this booking');
+    }
+
+    const revision = await this.priceRevisionRepository.save(
+      this.priceRevisionRepository.create({
+        bookingId,
+        previousAmount: booking.baseAmount,
+        requestedAmount: round2(requestedAmount),
+        reason: reason.trim(),
+        status: RevisionStatus.PENDING,
+      }),
+    );
+    return this.toPriceRevisionDto(revision);
+  }
+
+  async getPriceRevisions(bookingId: string, requester: { sub: string; role: string }): Promise<PriceRevisionDto[]> {
+    const booking = await this.loadWithRelations(bookingId);
+    this.checkBookingAccess(booking, requester);
+    const revisions = await this.priceRevisionRepository.find({ where: { bookingId }, order: { createdAt: 'DESC' } });
+    return revisions.map((r) => this.toPriceRevisionDto(r));
+  }
+
+  async respondToPriceRevision(
+    bookingId: string,
+    revisionId: string,
+    customerId: string,
+    approved: boolean,
+  ): Promise<BookingDto> {
+    const booking = await this.loadWithRelations(bookingId);
+    if (booking.customerId !== customerId) {
+      throw new ForbiddenException('You can only respond to price changes on your own booking');
+    }
+    const revision = await this.priceRevisionRepository.findOne({ where: { id: revisionId, bookingId } });
+    if (!revision) throw new NotFoundException('Price revision not found');
+    if (revision.status !== RevisionStatus.PENDING) {
+      throw new BadRequestException('This price change has already been responded to');
+    }
+
+    revision.status = approved ? RevisionStatus.APPROVED : RevisionStatus.REJECTED;
+    revision.respondedAt = new Date();
+    await this.priceRevisionRepository.save(revision);
+
+    if (approved) {
+      booking.baseAmount = revision.requestedAmount;
+      booking.totalAmount = booking.baseAmount + booking.serviceFee + booking.emergencySurcharge;
+      await this.bookingRepository.save(booking);
+    }
+
+    return this.toDto(booking);
+  }
+
+  // ─── Commission settlement (cash jobs) & technician payouts ─────────────
+
+  // Called once the company is confirmed to have actually received a
+  // booking's commission — for ESEWA/KHALTI this is when PaymentsService
+  // verifies the customer's manual transfer arrived (the whole amount,
+  // company cut included, lands on the company's number at once).
+  async markCommissionSettled(bookingId: string): Promise<void> {
+    await this.bookingRepository.update({ id: bookingId }, { commissionSettled: true });
+  }
+
+  async claimCommissionRemittance(bookingId: string, technicianId: string, reference: string): Promise<void> {
+    const booking = await this.loadWithRelations(bookingId);
+    if (booking.technicianId !== technicianId) {
+      throw new ForbiddenException('You are not assigned to this booking');
+    }
+    if (booking.paymentMethod !== PaymentMethod.CASH) {
+      throw new BadRequestException('Only cash jobs need a commission remittance — digital payments settle automatically');
+    }
+    if (booking.status !== BookingStatus.COMPLETED) {
+      throw new BadRequestException('This job is not marked complete yet');
+    }
+    if (booking.commissionSettled) {
+      throw new BadRequestException('Commission for this booking is already settled');
+    }
+    if (!reference || reference.trim().length < 4) {
+      throw new BadRequestException('Enter the transaction ID from your commission payment so it can be verified');
+    }
+
+    booking.commissionReference = reference.trim();
+    await this.bookingRepository.save(booking);
+  }
+
+  async verifyCommissionRemittance(bookingId: string, approved: boolean): Promise<void> {
+    const booking = await this.loadWithRelations(bookingId);
+    if (!booking.commissionReference) {
+      throw new BadRequestException('No commission remittance claim found for this booking');
+    }
+    if (approved) {
+      booking.commissionSettled = true;
+    } else {
+      // Rejected — clear the claim so the technician can resubmit with a
+      // correct reference, rather than leaving a dead claim in place.
+      booking.commissionReference = null;
+    }
+    await this.bookingRepository.save(booking);
+  }
+
+  // Bookings that are done, whose commission is confirmed collected, and
+  // that haven't been included in a payout yet — this is what a technician
+  // is actually owed right now.
+  private async findUnpaidEarnings(technicianId: string): Promise<Booking[]> {
+    return this.bookingRepository.find({
+      where: {
+        technicianId,
+        status: BookingStatus.COMPLETED,
+        commissionSettled: true,
+        payoutId: IsNull(),
+      },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  async getTechnicianEarnings(technicianId: string): Promise<{
+    pendingBalance: number;
+    pendingBookingCount: number;
+    paidTotal: number;
+    bookings: { id: string; bookingNumber: string; technicianPayoutAmount: number; completedAt: string }[];
+  }> {
+    const unpaid = await this.findUnpaidEarnings(technicianId);
+    const paidOut = await this.technicianPayoutRepository.find({ where: { technicianId } });
+
+    return {
+      pendingBalance: round2(unpaid.reduce((sum, b) => sum + (b.technicianPayoutAmount ?? 0), 0)),
+      pendingBookingCount: unpaid.length,
+      paidTotal: round2(paidOut.reduce((sum, p) => sum + p.totalAmount, 0)),
+      bookings: unpaid.map((b) => ({
+        id: b.id,
+        bookingNumber: b.bookingNumber,
+        technicianPayoutAmount: b.technicianPayoutAmount ?? 0,
+        completedAt: b.updatedAt.toISOString(),
+      })),
+    };
+  }
+
+  // Admin overview: every technician with money currently owed to them.
+  async listPendingPayouts(): Promise<{ technicianId: string; technicianName: string; pendingBalance: number; bookingCount: number }[]> {
+    const eligible = await this.bookingRepository.find({
+      where: { status: BookingStatus.COMPLETED, commissionSettled: true, payoutId: IsNull() },
+      relations: { technician: true },
+    });
+
+    const byTechnician = new Map<string, { technicianName: string; pendingBalance: number; bookingCount: number }>();
+    for (const b of eligible) {
+      if (!b.technicianId) continue;
+      const entry = byTechnician.get(b.technicianId) ?? {
+        technicianName: b.technician?.fullName ?? 'Unknown Technician',
+        pendingBalance: 0,
+        bookingCount: 0,
+      };
+      entry.pendingBalance = round2(entry.pendingBalance + (b.technicianPayoutAmount ?? 0));
+      entry.bookingCount += 1;
+      byTechnician.set(b.technicianId, entry);
+    }
+
+    return Array.from(byTechnician.entries()).map(([technicianId, v]) => ({ technicianId, ...v }));
+  }
+
+  // Records that a technician has actually been paid (outside the app) and
+  // closes out every currently-eligible booking against that payout, so
+  // they can never be double-counted in a future payout.
+  async createPayout(technicianId: string, notes?: string): Promise<{ id: string; totalAmount: number; bookingCount: number }> {
+    const unpaid = await this.findUnpaidEarnings(technicianId);
+    if (unpaid.length === 0) {
+      throw new BadRequestException('This technician has no pending earnings to pay out');
+    }
+
+    const totalAmount = round2(unpaid.reduce((sum, b) => sum + (b.technicianPayoutAmount ?? 0), 0));
+    const payout = await this.technicianPayoutRepository.save(
+      this.technicianPayoutRepository.create({
+        technicianId,
+        totalAmount,
+        bookingCount: unpaid.length,
+        notes: notes?.trim() || null,
+      }),
+    );
+
+    await this.bookingRepository.update({ id: In(unpaid.map((b) => b.id)) }, { payoutId: payout.id });
+
+    return { id: payout.id, totalAmount: payout.totalAmount, bookingCount: payout.bookingCount };
   }
 
   async updatePaymentStatus(id: string, paymentStatus: PaymentStatus): Promise<BookingDto> {

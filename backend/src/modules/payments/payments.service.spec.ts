@@ -10,7 +10,7 @@ import { Payment, PaymentRecordStatus } from './entities/payment.entity';
 describe('PaymentsService — manual pay-to-number flow', () => {
   let service: PaymentsService;
   let paymentRepo: { findOne: jest.Mock; save: jest.Mock; create: jest.Mock };
-  let bookingsService: { findById: jest.Mock; updatePaymentStatus: jest.Mock };
+  let bookingsService: { findById: jest.Mock; updatePaymentStatus: jest.Mock; markCommissionSettled: jest.Mock };
 
   const OWNER_ID = 'customer-1';
 
@@ -32,6 +32,7 @@ describe('PaymentsService — manual pay-to-number flow', () => {
     bookingsService = {
       findById: jest.fn(),
       updatePaymentStatus: jest.fn().mockResolvedValue(undefined),
+      markCommissionSettled: jest.fn().mockResolvedValue(undefined),
     };
 
     const module = await Test.createTestingModule({
@@ -78,18 +79,23 @@ describe('PaymentsService — manual pay-to-number flow', () => {
       await expect(service.verifyManualPayment('booking-1', true)).rejects.toThrow(NotFoundException);
     });
 
-    it('marks the payment COMPLETED and the booking PAID on approval', async () => {
+    it('marks the payment COMPLETED, the booking PAID, and the commission settled on approval', async () => {
       paymentRepo.findOne.mockResolvedValue({ id: 'payment-1', status: PaymentRecordStatus.INITIATED });
       const result = await service.verifyManualPayment('booking-1', true);
       expect(paymentRepo.save).toHaveBeenCalledWith(expect.objectContaining({ status: PaymentRecordStatus.COMPLETED }));
       expect(bookingsService.updatePaymentStatus).toHaveBeenCalledWith('booking-1', PaymentStatus.PAID);
+      // The whole manual transfer (job value + commission) lands on the
+      // company's number in one go — no separate remittance step needed,
+      // unlike cash jobs.
+      expect(bookingsService.markCommissionSettled).toHaveBeenCalledWith('booking-1');
       expect(result.status).toBe(PaymentStatus.PAID);
     });
 
-    it('marks the payment FAILED and the booking FAILED on rejection', async () => {
+    it('marks the payment FAILED and the booking FAILED on rejection, without settling commission', async () => {
       paymentRepo.findOne.mockResolvedValue({ id: 'payment-1', status: PaymentRecordStatus.INITIATED });
       const result = await service.verifyManualPayment('booking-1', false);
       expect(paymentRepo.save).toHaveBeenCalledWith(expect.objectContaining({ status: PaymentRecordStatus.FAILED }));
+      expect(bookingsService.markCommissionSettled).not.toHaveBeenCalled();
       expect(result.status).toBe(PaymentStatus.FAILED);
     });
   });

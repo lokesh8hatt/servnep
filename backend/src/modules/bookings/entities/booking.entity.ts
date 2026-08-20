@@ -110,6 +110,37 @@ export class Booking {
   @Column({ type: 'enum', enum: PaymentMethod })
   paymentMethod: PaymentMethod;
 
+  // The next four fields exist to close a real gap: without them, a
+  // technician's word is the only record of what a cash job was actually
+  // worth, and there's no way to tell whether the company's cut of it was
+  // ever collected. commission/payout amounts are locked in at job
+  // completion (see BookingsService.updateStatus), from whatever baseAmount
+  // stands at that moment — i.e. after any approved PriceRevision.
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: DecimalTransformer })
+  commissionAmount: number | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: DecimalTransformer })
+  technicianPayoutAmount: number | null;
+
+  // True once the company has actually received its commission: immediately
+  // for ESEWA/KHALTI (the full manual transfer already lands on the
+  // company's number), only after admin-verified remittance for CASH jobs
+  // (see commissionReference). A booking only counts toward a technician's
+  // payable balance once this is true.
+  @Column({ type: 'boolean', default: false })
+  commissionSettled: boolean;
+
+  // Cash-job technician's proof that they sent the company its commission —
+  // same "customer reference" pattern as Payment.customerReference, mirrored
+  // for the technician-to-company leg of the money.
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  commissionReference: string | null;
+
+  // Set once this booking's net payout has been included in a
+  // TechnicianPayout batch — null means "earned but not yet paid out".
+  @Column({ type: 'uuid', nullable: true })
+  payoutId: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { fetchApi } from '@/lib/api';
 import { AuthGuard } from '@/context/AuthGuard';
 import { useAuth } from '@/context/AuthContext';
-import { User, CheckCircle, Navigation, Phone, MapPin, DollarSign, Star, RefreshCw, XCircle, LogOut, Clock } from 'lucide-react';
+import { User, CheckCircle, Navigation, Phone, MapPin, DollarSign, Star, RefreshCw, XCircle, LogOut, Clock, Edit3, Send } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SoundToggle } from '@/components/SoundToggle';
 import { useToast } from '@/context/ToastContext';
@@ -22,15 +22,41 @@ export default function TechnicianDashboard() {
   const [sharingLocation, setSharingLocation] = useState(false);
   const [locationError, setLocationError] = useState('');
   const lastSentAtRef = useRef(0);
+  const [earnings, setEarnings] = useState<{ pendingBalance: number; pendingBookingCount: number; paidTotal: number } | null>(null);
+  const [pendingRevisions, setPendingRevisions] = useState<Record<string, any>>({});
+  const [revisingJobId, setRevisingJobId] = useState<string | null>(null);
+  const [revisionAmount, setRevisionAmount] = useState('');
+  const [revisionReason, setRevisionReason] = useState('');
+  const [submittingRevision, setSubmittingRevision] = useState(false);
+  const [commissionRefs, setCommissionRefs] = useState<Record<string, string>>({});
+  const [submittingCommission, setSubmittingCommission] = useState<string | null>(null);
 
   const loadData = async () => {
     try {
-      const [profData, jobData] = await Promise.all([
+      const [profData, jobData, earningsData] = await Promise.all([
         fetchApi('/users/profile'),
         fetchApi('/bookings'),
+        fetchApi('/payments/technician/earnings').catch(() => null),
       ]);
       setProfile(profData);
       setJobs(jobData);
+      setEarnings(earningsData);
+
+      // Only ASSIGNED/IN_PROGRESS jobs can have a live price revision — no
+      // point checking the rest on every refresh.
+      const activeJobs = jobData.filter((j: any) => j.status === 'ASSIGNED' || j.status === 'IN_PROGRESS');
+      const revisionEntries = await Promise.all(
+        activeJobs.map(async (j: any) => {
+          try {
+            const history = await fetchApi(`/bookings/${j.id}/price-revision`);
+            const latest = history[0];
+            return [j.id, latest?.status === 'PENDING' ? latest : null] as const;
+          } catch {
+            return [j.id, null] as const;
+          }
+        }),
+      );
+      setPendingRevisions(Object.fromEntries(revisionEntries.filter(([, v]) => v)));
     } catch {
       showToast('Please log in to continue.', 'error');
       logout();
@@ -100,15 +126,56 @@ export default function TechnicianDashboard() {
     logout();
   };
 
-  const getEarningsSummary = () => {
-    const completed = jobs.filter(j => j.status === 'COMPLETED');
-    const total = completed.reduce((acc, curr) => acc + curr.totalAmount, 0);
-    const commission = Math.round(total * 0.20);
-    const net = total - commission;
-    return { total, commission, net, count: completed.length };
+  const handleSubmitRevision = async (jobId: string) => {
+    const amount = parseFloat(revisionAmount);
+    if (!amount || amount <= 0) {
+      showToast('Enter a valid revised amount.', 'error');
+      return;
+    }
+    if (revisionReason.trim().length < 4) {
+      showToast('Explain why the price is changing — the customer sees this before approving.', 'error');
+      return;
+    }
+    setSubmittingRevision(true);
+    try {
+      await fetchApi(`/bookings/${jobId}/price-revision`, {
+        method: 'POST',
+        body: JSON.stringify({ requestedAmount: amount, reason: revisionReason.trim() }),
+      });
+      showToast('Price change sent to the customer for approval.', 'success');
+      setRevisingJobId(null);
+      setRevisionAmount('');
+      setRevisionReason('');
+      loadData();
+    } catch (err: any) {
+      showToast(err.message || 'Could not submit the price change.', 'error');
+    } finally {
+      setSubmittingRevision(false);
+    }
   };
 
-  const earnings = getEarningsSummary();
+  const handleRemitCommission = async (jobId: string) => {
+    const reference = (commissionRefs[jobId] || '').trim();
+    if (reference.length < 4) {
+      showToast('Enter the transaction ID from your commission payment (at least 4 characters).', 'error');
+      return;
+    }
+    setSubmittingCommission(jobId);
+    try {
+      await fetchApi('/payments/commission/claim', {
+        method: 'POST',
+        body: JSON.stringify({ bookingId: jobId, reference }),
+      });
+      showToast('Commission remittance submitted — awaiting admin verification.', 'success');
+      loadData();
+    } catch (err: any) {
+      showToast(err.message || 'Could not submit the remittance.', 'error');
+    } finally {
+      setSubmittingCommission(null);
+    }
+  };
+
+  const completedCount = jobs.filter((j) => j.status === 'COMPLETED').length;
 
   return (
     <AuthGuard requiredRole="TECHNICIAN">
@@ -149,7 +216,7 @@ export default function TechnicianDashboard() {
               </div>
               <div className="flex gap-2 justify-center text-xs text-amber-500 font-bold">
                 <Star size={16} fill="currentColor" className="text-amber-500" />
-                <span>4.95 Rating ({earnings.count} Jobs)</span>
+                <span>4.95 Rating ({completedCount} Jobs)</span>
               </div>
             </div>
 
@@ -157,21 +224,19 @@ export default function TechnicianDashboard() {
               <h4 className="font-heading font-bold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-1.5">
                 <DollarSign size={16} className="text-emerald-600" /> Earnings Overview
               </h4>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="p-3 bg-sky-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800">
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block uppercase font-bold">Gross</span>
-                  <span className="text-sm font-extrabold text-slate-800 dark:text-slate-100">Rs.{earnings.total}</span>
-                </div>
-                <div className="p-3 bg-sky-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800">
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block uppercase font-bold">Fee</span>
-                  <span className="text-sm font-extrabold text-red-500">Rs.{earnings.commission}</span>
-                </div>
+              <div className="grid grid-cols-2 gap-2 text-center">
                 <div className="p-3 bg-emerald-50 dark:bg-emerald-500/10 rounded-xl border border-emerald-100 dark:border-emerald-500/20">
-                  <span className="text-[10px] text-emerald-800 dark:text-emerald-300 block uppercase font-bold">Net Pay</span>
-                  <span className="text-sm font-extrabold text-emerald-600">Rs.{earnings.net}</span>
+                  <span className="text-[10px] text-emerald-800 dark:text-emerald-300 block uppercase font-bold">Owed to You</span>
+                  <span className="text-sm font-extrabold text-emerald-600">Rs.{earnings?.pendingBalance ?? 0}</span>
+                </div>
+                <div className="p-3 bg-sky-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800">
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block uppercase font-bold">Paid to Date</span>
+                  <span className="text-sm font-extrabold text-slate-800 dark:text-slate-100">Rs.{earnings?.paidTotal ?? 0}</span>
                 </div>
               </div>
-              <p className="text-[10px] text-slate-400 dark:text-slate-500 text-center">Platform fee: 20% commission</p>
+              <p className="text-[10px] text-slate-400 dark:text-slate-500 text-center">
+                Platform commission: 15% per job · {earnings?.pendingBookingCount ?? 0} job{earnings?.pendingBookingCount === 1 ? '' : 's'} awaiting payout
+              </p>
             </div>
 
             {activeJob && (
@@ -250,6 +315,86 @@ export default function TechnicianDashboard() {
                       </div>
                     </div>
 
+                    {(job.status === 'ASSIGNED' || job.status === 'IN_PROGRESS') && (
+                      <div className="space-y-2">
+                        {pendingRevisions[job.id] ? (
+                          <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 text-xs">
+                            <p className="font-bold text-amber-800 dark:text-amber-300">
+                              Waiting for customer approval: Rs. {pendingRevisions[job.id].requestedAmount} (was Rs. {pendingRevisions[job.id].previousAmount})
+                            </p>
+                            <p className="text-amber-700 dark:text-amber-400 mt-0.5">{pendingRevisions[job.id].reason}</p>
+                          </div>
+                        ) : revisingJobId === job.id ? (
+                          <div className="p-3 rounded-xl bg-sky-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 space-y-2">
+                            <input
+                              type="number"
+                              min="1"
+                              placeholder="Revised amount (Rs.)"
+                              value={revisionAmount}
+                              onChange={(e) => setRevisionAmount(e.target.value)}
+                              className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs"
+                            />
+                            <textarea
+                              placeholder="Why is the price changing? The customer sees this."
+                              value={revisionReason}
+                              onChange={(e) => setRevisionReason(e.target.value)}
+                              rows={2}
+                              className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs resize-none"
+                            />
+                            <div className="flex gap-2 justify-end">
+                              <button onClick={() => setRevisingJobId(null)} className="text-xs font-bold text-slate-500 dark:text-slate-400 px-3 py-1.5">
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => handleSubmitRevision(job.id)}
+                                disabled={submittingRevision}
+                                className="btn-secondary text-xs py-1.5 px-3 disabled:opacity-50"
+                              >
+                                {submittingRevision ? 'Sending…' : 'Send to Customer'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => { setRevisingJobId(job.id); setRevisionAmount(String(job.baseAmount)); setRevisionReason(''); }}
+                            className="text-xs font-bold text-[#328CC1] flex items-center gap-1 hover:underline"
+                          >
+                            <Edit3 size={12} /> Actual price different? Request a change
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {job.status === 'COMPLETED' && job.paymentMethod === 'CASH' && !job.commissionSettled && (
+                      <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 space-y-2">
+                        {job.commissionReference ? (
+                          <p className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                            Commission of Rs. {job.commissionAmount} submitted (ref: {job.commissionReference}) — awaiting admin verification.
+                          </p>
+                        ) : (
+                          <>
+                            <p className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                              You owe the company Rs. {job.commissionAmount} commission on this cash job (Rs. {job.technicianPayoutAmount} is yours).
+                            </p>
+                            <input
+                              type="text"
+                              placeholder="Transaction ID from your commission payment"
+                              value={commissionRefs[job.id] || ''}
+                              onChange={(e) => setCommissionRefs((prev) => ({ ...prev, [job.id]: e.target.value }))}
+                              className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs"
+                            />
+                            <button
+                              onClick={() => handleRemitCommission(job.id)}
+                              disabled={submittingCommission === job.id}
+                              className="btn-secondary text-xs py-1.5 px-3 w-full flex items-center justify-center gap-1 disabled:opacity-50"
+                            >
+                              <Send size={12} /> {submittingCommission === job.id ? 'Submitting…' : "I've Sent the Commission"}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex gap-3 justify-end text-xs font-bold pt-1">
                       {job.status === 'ASSIGNED' && (
                         <>
@@ -262,7 +407,12 @@ export default function TechnicianDashboard() {
                         </>
                       )}
                       {job.status === 'IN_PROGRESS' && (
-                        <button onClick={() => handleUpdateStatus(job.id, 'COMPLETED')} className="btn-primary py-2 flex items-center gap-1">
+                        <button
+                          onClick={() => handleUpdateStatus(job.id, 'COMPLETED')}
+                          disabled={!!pendingRevisions[job.id]}
+                          title={pendingRevisions[job.id] ? 'Resolve the pending price change first' : undefined}
+                          className="btn-primary py-2 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
                           <CheckCircle size={12} /> Mark Complete
                         </button>
                       )}
